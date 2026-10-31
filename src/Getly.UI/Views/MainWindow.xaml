@@ -15,19 +15,26 @@
     <Grid Background="Transparent">
         <Grid.RowDefinitions>
             <!-- App Title Bar -->
-            <RowDefinition Height="36" />
+            <RowDefinition Height="44" />
             <!-- Main Content Area with Navigation Rail -->
             <RowDefinition Height="*" />
             <!-- Bottom Status Bar -->
             <RowDefinition Height="32" />
         </Grid.RowDefinitions>
 
-        <!-- Custom Title Bar -->
-        <Grid Grid.Row="0" Background="#0DFFFFFF" Padding="16,0,16,0">
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="10">
+        <!-- Custom Title Bar (Assigned via SetTitleBar in MainWindow.xaml.cs) -->
+        <Grid
+            x:Name="AppTitleBar"
+            Grid.Row="0"
+            Height="44"
+            Background="Transparent"
+            Padding="16,0,16,0">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
                 <FontIcon Glyph="&#xE896;" FontSize="14" Foreground="#3B82F6" />
-                <TextBlock Text="Getly" FontWeight="SemiBold" FontSize="12" Foreground="#FFFFFF" />
-                <TextBlock Text="— Gestore Download Resiliente Multi-Interfaccia" FontSize="11" Foreground="#9CA3AF" />
+                <TextBlock Text="Getly" FontWeight="SemiBold" FontSize="12" Foreground="#FFFFFF" VerticalAlignment="Center" />
+                <Border Background="#20FFFFFF" BorderBrush="#30FFFFFF" BorderThickness="1" CornerRadius="4" Padding="6,2,6,2" VerticalAlignment="Center">
+                    <TextBlock Text="v1.0 Preview" FontSize="10" Foreground="#9CA3AF" FontWeight="Medium" />
+                </Border>
             </StackPanel>
         </Grid>
 
@@ -37,8 +44,12 @@
             x:Name="NavView"
             IsBackButtonVisible="Collapsed"
             IsSettingsVisible="True"
-            PaneDisplayMode="Left"
-            OpenPaneLength="210"
+            IsPaneToggleButtonVisible="True"
+            PaneDisplayMode="Auto"
+            OpenPaneLength="200"
+            CompactPaneLength="48"
+            ExpandedModeThresholdWidth="1000"
+            CompactModeThresholdWidth="800"
             SelectionChanged="NavView_SelectionChanged"
             ItemInvoked="NavView_ItemInvoked">
             <NavigationView.MenuItems>

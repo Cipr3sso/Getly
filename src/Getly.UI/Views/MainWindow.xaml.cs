@@ -1,12 +1,16 @@
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Getly.UI.ViewModels;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Windows.ApplicationModel.DataTransfer;
+using Windows.Graphics;
 using Windows.Storage.Pickers;
+using WinRT.Interop;
 
 namespace Getly.UI.Views;
 
@@ -16,6 +20,75 @@ public sealed partial class MainWindow : Window
     private bool _initialized;
     private bool _isDialogOpen;
 
+    #region Win32 WndProc & Minimum Window Size (WM_GETMINMAXINFO)
+
+    private delegate IntPtr WndProcDelegate(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+    private readonly WndProcDelegate _wndProcDelegate;
+    private readonly IntPtr _oldWndProc;
+
+    private const int GWLP_WNDPROC = -4;
+    private const uint WM_GETMINMAXINFO = 0x0024;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int x;
+        public int y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MINMAXINFO
+    {
+        public POINT ptReserved;
+        public POINT ptMaxSize;
+        public POINT ptMaxPosition;
+        public POINT ptMinTrackSize;
+        public POINT ptMaxTrackSize;
+    }
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
+    private static extern IntPtr SetWindowLongPtr64(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongW", SetLastError = true)]
+    private static extern int SetWindowLong32(IntPtr hWnd, int nIndex, int dwNewLong);
+
+    private static IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong)
+    {
+        return IntPtr.Size == 8
+            ? SetWindowLongPtr64(hWnd, nIndex, dwNewLong)
+            : new IntPtr(SetWindowLong32(hWnd, nIndex, dwNewLong.ToInt32()));
+    }
+
+    [DllImport("user32.dll", EntryPoint = "CallWindowProcW")]
+    private static extern IntPtr CallWindowProc(IntPtr lpPrevWndFunc, IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(IntPtr hWnd);
+
+    private IntPtr HookWndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
+    {
+        if (msg == WM_GETMINMAXINFO)
+        {
+            // Populate default metrics and borders first
+            CallWindowProc(_oldWndProc, hWnd, msg, wParam, lParam);
+
+            var mmi = Marshal.PtrToStructure<MINMAXINFO>(lParam);
+            uint dpi = GetDpiForWindow(hWnd);
+            float scale = dpi > 0 ? (float)dpi / 96f : 1.0f;
+
+            // Physical unpassable minimum window size: 800px width x 520px height
+            mmi.ptMinTrackSize.x = Math.Max(mmi.ptMinTrackSize.x, (int)(800 * scale));
+            mmi.ptMinTrackSize.y = Math.Max(mmi.ptMinTrackSize.y, (int)(520 * scale));
+
+            Marshal.StructureToPtr(mmi, lParam, false);
+            return IntPtr.Zero;
+        }
+
+        return CallWindowProc(_oldWndProc, hWnd, msg, wParam, lParam);
+    }
+
+    #endregion
+
     public MainWindow()
     {
         ViewModel = new MainViewModel();
@@ -23,7 +96,26 @@ public sealed partial class MainWindow : Window
 
         // Customise window title and dimensions
         Title = "Getly Download Manager";
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(1100, 680));
+        AppWindow.Resize(new SizeInt32(1100, 680));
+
+        // 1. Integrated Dark Titlebar (Full Mica / Fluent TitleBar)
+        ExtendsContentIntoTitleBar = true;
+        if (AppWindowTitleBar.IsCustomizationSupported())
+        {
+            var titleBar = AppWindow.TitleBar;
+            titleBar.ButtonBackgroundColor = Microsoft.UI.Colors.Transparent;
+            titleBar.ButtonInactiveBackgroundColor = Microsoft.UI.Colors.Transparent;
+            titleBar.ButtonForegroundColor = Microsoft.UI.Colors.White;
+            titleBar.ButtonHoverForegroundColor = Microsoft.UI.Colors.White;
+            titleBar.ButtonHoverBackgroundColor = Windows.UI.Color.FromArgb(30, 255, 255, 255);
+            titleBar.ButtonPressedBackgroundColor = Windows.UI.Color.FromArgb(50, 255, 255, 255);
+        }
+        SetTitleBar(AppTitleBar);
+
+        // 2. Intercept Win32 WndProc to enforce physical unpassable min dimensions
+        _wndProcDelegate = HookWndProc;
+        var hwnd = WindowNative.GetWindowHandle(this);
+        _oldWndProc = SetWindowLongPtr(hwnd, GWLP_WNDPROC, Marshal.GetFunctionPointerForDelegate(_wndProcDelegate));
 
         // Launch background supervisor and connect IPC
         Activated += MainWindow_Activated;
