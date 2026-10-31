@@ -73,6 +73,9 @@ public partial class TaskItemViewModel : ObservableObject
     private string? _errorMessage;
 
     [ObservableProperty]
+    private string _errorToolTip = string.Empty;
+
+    [ObservableProperty]
     private string _destinationDir = string.Empty;
 
     [ObservableProperty]
@@ -111,7 +114,12 @@ public partial class TaskItemViewModel : ObservableObject
         IsActive = string.Equals(dto.Status, "DOWNLOADING", StringComparison.OrdinalIgnoreCase);
         IsPaused = string.Equals(dto.Status, "PAUSED", StringComparison.OrdinalIgnoreCase);
         IsCompleted = string.Equals(dto.Status, "COMPLETED", StringComparison.OrdinalIgnoreCase);
-        IsError = string.Equals(dto.Status, "FAILED", StringComparison.OrdinalIgnoreCase);
+        IsError = string.Equals(dto.Status, "FAILED", StringComparison.OrdinalIgnoreCase)
+                  || string.Equals(dto.Status, "ERROR", StringComparison.OrdinalIgnoreCase);
+
+        ErrorToolTip = !string.IsNullOrWhiteSpace(ErrorMessage)
+            ? $"Errore: {ErrorMessage}"
+            : (IsError ? "Errore durante il download" : string.Empty);
 
         // Formatted metrics
         DownloadedFormatted = FormatSize(dto.DownloadedBytes, dto.TotalSize);

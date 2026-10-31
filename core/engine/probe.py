@@ -1,9 +1,10 @@
 import asyncio
 import os
 import re
+import socket
 import urllib.parse
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Any
 import aiohttp
 import logging
 
@@ -115,8 +116,8 @@ class ResourceProbe:
     @classmethod
     async def probe(
         cls,
-        session: aiohttp.ClientSession,
-        url: str,
+        session_or_url: Any,
+        url: Optional[str] = None,
         referer: Optional[str] = None,
         cookies: Optional[str] = None,
         user_agent: Optional[str] = None,
@@ -127,7 +128,36 @@ class ResourceProbe:
         Uses realistic Chrome User-Agent, Sec-Ch-Ua headers, and dynamic/custom Referer and Cookies.
         Gracefully falls back to GET Range if HEAD is rejected (e.g. 403 Forbidden or 405).
         Strictly propagates connection and timeout errors to prevent 0-byte fallbacks.
+        Configures family=socket.AF_INET to prevent unroutable IPv6 queries on dual-stack CDN hosts.
         """
+        if isinstance(session_or_url, str):
+            actual_url = session_or_url
+            actual_session = None
+        else:
+            actual_session = session_or_url
+            actual_url = url or ""
+
+        if actual_session is None:
+            connector = aiohttp.TCPConnector(
+                family=socket.AF_INET,
+                force_close=False,
+                keepalive_timeout=60.0,
+            )
+            async with aiohttp.ClientSession(
+                connector=connector,
+                headers=get_browser_headers(actual_url, referer=referer, cookies=cookies, user_agent=user_agent, custom_headers=custom_headers),
+            ) as standalone_session:
+                return await cls.probe(
+                    standalone_session,
+                    actual_url,
+                    referer=referer,
+                    cookies=cookies,
+                    user_agent=user_agent,
+                    custom_headers=custom_headers,
+                )
+
+        session = actual_session
+        url = actual_url
         resolved_url = url
         etag = None
         last_modified = None

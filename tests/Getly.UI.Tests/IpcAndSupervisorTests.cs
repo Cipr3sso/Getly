@@ -158,6 +158,28 @@ public class IpcAndSupervisorTests : IDisposable
         Assert.Equal("--:--", vm.EtaFormatted);
     }
 
+    [Fact]
+    public void TaskItemViewModel_ErrorMessageAndToolTip_Formatting()
+    {
+        var dto = new TaskItemDto
+        {
+            TaskId = "error-task-1",
+            Url = "https://link.testfile.org/PDF100MB",
+            Filename = "PDF100MB",
+            Status = "FAILED",
+            ErrorMessage = "Probe failed: server returned HTTP 403 for https://link.testfile.org/PDF100MB",
+            Category = "Documenti",
+            TaskType = "HTTP"
+        };
+
+        var vm = new TaskItemViewModel(dto);
+
+        Assert.True(vm.IsError);
+        Assert.Equal("Errore", vm.StatusDisplay);
+        Assert.Equal("Probe failed: server returned HTTP 403 for https://link.testfile.org/PDF100MB", vm.ErrorMessage);
+        Assert.Equal("Errore: Probe failed: server returned HTTP 403 for https://link.testfile.org/PDF100MB", vm.ErrorToolTip);
+    }
+
     [Fact(Timeout = 10000)]
     public async Task IpcClient_ConnectTimeout_FailsPromptlyAsync()
     {

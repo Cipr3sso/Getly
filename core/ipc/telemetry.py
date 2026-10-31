@@ -113,7 +113,7 @@ class TelemetryDispatcher:
         for task in all_tasks:
             current_task_ids.add(task.task_id)
             status_val = task.status.value if hasattr(task.status, "value") else str(task.status)
-            curr_state = (status_val, task.downloaded_bytes)
+            curr_state = (status_val, task.downloaded_bytes, task.error_message)
             last_state = self._last_task_snapshots.get(task.task_id)
 
             if last_state != curr_state:

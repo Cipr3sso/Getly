@@ -159,7 +159,8 @@
                                 BorderThickness="1"
                                 CornerRadius="8"
                                 Padding="12,8,12,8"
-                                DoubleTapped="OnRowDoubleTapped">
+                                DoubleTapped="OnRowDoubleTapped"
+                                ToolTipService.ToolTip="{x:Bind ErrorToolTip, Mode=OneWay}">
                                 <Border.ContextFlyout>
                                     <MenuFlyout>
                                         <MenuFlyoutItem Text="Avvia / Riprendi" Icon="Play" Click="OnResumeTaskClick" />
@@ -184,7 +185,7 @@
                                     </Grid.ColumnDefinitions>
 
                                     <!-- Status Glyph Icon -->
-                                    <FontIcon Grid.Column="0" Glyph="{x:Bind StatusIconGlyph, Mode=OneWay}" FontSize="16" Foreground="{x:Bind StatusColor, Mode=OneWay}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    <FontIcon Grid.Column="0" Glyph="{x:Bind StatusIconGlyph, Mode=OneWay}" FontSize="16" Foreground="{x:Bind StatusColor, Mode=OneWay}" HorizontalAlignment="Center" VerticalAlignment="Center" ToolTipService.ToolTip="{x:Bind ErrorToolTip, Mode=OneWay}" />
 
                                     <!-- File Name & Source URL -->
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2" Padding="4,0,10,0">

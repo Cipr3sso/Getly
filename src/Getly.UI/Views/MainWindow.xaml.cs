@@ -119,6 +119,12 @@ public sealed partial class MainWindow : Window
 
         // Launch background supervisor and connect IPC
         Activated += MainWindow_Activated;
+
+        // Default initial selection
+        if (NavView.MenuItems.Count > 0)
+        {
+            NavView.SelectedItem = NavView.MenuItems[0];
+        }
     }
 
     private async void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
@@ -148,7 +154,17 @@ public sealed partial class MainWindow : Window
     {
         if (args.IsSettingsInvoked)
         {
-            await ShowSettingsDialogAsync();
+            var previousItem = NavView.SelectedItem;
+            try
+            {
+                await ShowSettingsDialogAsync();
+            }
+            finally
+            {
+                // Ripristina l'elemento selezionato prima dell'apertura del dialog
+                NavView.SelectedItem = previousItem ?? (NavView.MenuItems.Count > 0 ? NavView.MenuItems[0] : null);
+            }
+            return;
         }
     }
 
@@ -329,6 +345,35 @@ public sealed partial class MainWindow : Window
             AddRow("Cartella Salvataggio", task.DestinationDir);
             AddRow("Categoria", task.Category);
             AddRow("Stato", $"{task.StatusDisplay} ({task.ProgressPercentageFormatted})");
+
+            // Prominent detailed error box if task encountered an error
+            if (task.IsError || string.Equals(task.Status, "Error", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrWhiteSpace(task.ErrorMessage))
+            {
+                var errorPanel = new StackPanel { Spacing = 4 };
+                errorPanel.Children.Add(new TextBlock
+                {
+                    Text = "Motivo dell'Errore / Eccezione:",
+                    FontSize = 11,
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 239, 68, 68))
+                });
+
+                var errorTextBox = new TextBox
+                {
+                    Text = !string.IsNullOrWhiteSpace(task.ErrorMessage) ? task.ErrorMessage : "Errore non specificato durante il download o probe",
+                    IsReadOnly = true,
+                    FontSize = 11,
+                    TextWrapping = TextWrapping.Wrap,
+                    Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 252, 165, 165)),
+                    Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(40, 239, 68, 68)),
+                    BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 220, 38, 38)),
+                    BorderThickness = new Thickness(1),
+                    Padding = new Thickness(8, 6, 8, 6)
+                };
+                errorPanel.Children.Add(errorTextBox);
+                contentPanel.Children.Add(errorPanel);
+            }
+
             AddRow("Progresso Dimensioni", task.DownloadedFormatted);
             AddRow("Velocità Corrente", task.SpeedFormatted);
             AddRow("Tempo Stimato Rimanente (ETA)", task.EtaFormatted);

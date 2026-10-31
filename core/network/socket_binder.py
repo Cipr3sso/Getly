@@ -92,7 +92,9 @@ class SocketBinder:
         """
         def factory(addr_info: Tuple[int, int, int, str, Any]) -> socket.socket:
             family, type_, proto, _canonname, _sockaddr = addr_info
-            sock = socket.socket(family, type_, proto)
+            # Force AF_INET for IPv4 adapters to prevent unroutable IPv6 queries on dual-stack CDN hosts
+            sock_family = socket.AF_INET if (adapter.ip and ":" not in adapter.ip) else family
+            sock = socket.socket(sock_family, type_, proto)
             sock.setblocking(False)
             cls.apply_interface_binding(sock, adapter)
             return sock
