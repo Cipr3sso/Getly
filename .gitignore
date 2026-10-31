@@ -1,0 +1,42 @@
+# Byte-compiled / optimized files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.venv/
+venv/
+env/
+ENV/
+.env
+
+# PyInstaller / Build outputs
+dist/
+build/
+*.spec
+Output/
+
+# Project runtime data, databases, logs and temporary files
+data/
+downloads.db
+*.log
+*.tmp
+*.temp
+
+# Node modules
+node_modules/
+
+# Flet runtime cache
+.flet/
+
+# Test and IDE caches
+.pytest_cache/
+.coverage
+htmlcov/
+.vscode/
+.idea/
+
+# OS artifacts
+Thumbs.db
+[Dd]esktop.ini
+.DS_Store

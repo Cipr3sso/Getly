@@ -1,0 +1,9 @@
+{
+  "name": "resilient_downloader",
+  "description": "Resilient Heisenberg Download Manager Native Host",
+  "path": "C:\\Users\\carlo\\Documents\\antigravity\\resilient-heisenberg\\native_messaging\\resilient_downloader.bat",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://kicdlfenjgbnjhldfagmoobkdnoniaok/"
+  ]
+}

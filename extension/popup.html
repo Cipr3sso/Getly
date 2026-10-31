@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <title>Getly</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div class="logo-box">
+        <img src="icons/icon32.png" alt="Logo" class="logo">
+        <div class="titles">
+          <h1>Getly</h1>
+          <span class="subtitle">Multi-Interface Net-Merge</span>
+        </div>
+      </div>
+    </header>
+
+    <div class="card toggle-card">
+      <div class="toggle-info">
+        <span class="card-title">Intercetta Download</span>
+        <span class="card-desc">Cattura automaticamente i file dal browser</span>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="interceptToggle" checked>
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="card status-card">
+      <div class="status-row">
+        <span class="status-label">Native Messaging:</span>
+        <span class="status-badge" id="hostStatus">Verifica...</span>
+      </div>
+      <div class="status-row">
+        <span class="status-label">Daemon Locale (9666):</span>
+        <span class="status-badge" id="daemonStatus">Verifica...</span>
+      </div>
+    </div>
+
+    <div class="card action-card">
+      <span class="card-title">Aggiungi Link Manuale</span>
+      <div class="input-group">
+        <input type="text" id="manualUrl" placeholder="https://esempio.com/file.iso">
+        <button id="sendBtn" class="primary-btn">Scarica</button>
+      </div>
+      <div id="feedback" class="feedback-msg"></div>
+    </div>
+
+    <footer class="footer">
+      <span>v1.0.0 • Resilient Download Engine</span>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
