@@ -26,6 +26,14 @@ downloads.db
 # Node modules
 node_modules/
 
+# .NET / Visual Studio build outputs
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
 # Flet runtime cache
 .flet/
 

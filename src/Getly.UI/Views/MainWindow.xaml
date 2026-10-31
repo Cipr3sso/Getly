@@ -1,0 +1,250 @@
+<Window
+    x:Class="Getly.UI.Views.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:Getly.UI.ViewModels"
+    Title="Getly Download Manager"
+    mc:Ignorable="d">
+
+    <Window.SystemBackdrop>
+        <MicaBackdrop Kind="Base" />
+    </Window.SystemBackdrop>
+
+    <Grid Background="Transparent">
+        <Grid.RowDefinitions>
+            <!-- App Title Bar -->
+            <RowDefinition Height="36" />
+            <!-- Main Content Area with Navigation Rail -->
+            <RowDefinition Height="*" />
+            <!-- Bottom Status Bar -->
+            <RowDefinition Height="32" />
+        </Grid.RowDefinitions>
+
+        <!-- Custom Title Bar -->
+        <Grid Grid.Row="0" Background="#0DFFFFFF" Padding="16,0,16,0">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="10">
+                <FontIcon Glyph="&#xE896;" FontSize="14" Foreground="#3B82F6" />
+                <TextBlock Text="Getly" FontWeight="SemiBold" FontSize="12" Foreground="#FFFFFF" />
+                <TextBlock Text="— Gestore Download Resiliente Multi-Interfaccia" FontSize="11" Foreground="#9CA3AF" />
+            </StackPanel>
+        </Grid>
+
+        <!-- Main Body: Navigation View & Download DataGrid -->
+        <NavigationView
+            Grid.Row="1"
+            x:Name="NavView"
+            IsBackButtonVisible="Collapsed"
+            IsSettingsVisible="True"
+            PaneDisplayMode="Left"
+            OpenPaneLength="210"
+            SelectionChanged="NavView_SelectionChanged">
+            <NavigationView.MenuItems>
+                <NavigationViewItem Content="Tutti i download" Tag="ALL">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE896;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="In corso" Tag="DOWNLOADING">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE768;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Completati" Tag="COMPLETED">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE73E;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Torrent / P2P" Tag="TORRENT">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE774;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.MenuItems>
+
+            <!-- Main Content: Command Bar + Data List -->
+            <Grid Padding="16,12,16,8" RowSpacing="10">
+                <Grid.RowDefinitions>
+                    <!-- Command Bar -->
+                    <RowDefinition Height="Auto" />
+                    <!-- List Header -->
+                    <RowDefinition Height="34" />
+                    <!-- Task List View -->
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!-- Command Bar & Search Box -->
+                <Grid Grid.Row="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="260" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                        <!-- Primary Action: New Download -->
+                        <Button
+                            Click="OnAddDownloadClick"
+                            Style="{StaticResource AccentButtonStyle}"
+                            Padding="12,6,12,6">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon Glyph="&#xE710;" FontSize="12" />
+                                <TextBlock Text="Nuovo Download" FontWeight="SemiBold" FontSize="12" />
+                            </StackPanel>
+                        </Button>
+
+                        <AppBarSeparator Margin="4,0,4,0" />
+
+                        <!-- Secondary Actions -->
+                        <Button Command="{x:Bind ViewModel.ResumeTaskCommand}" Padding="8,6,8,6" ToolTipService.ToolTip="Avvia download selezionato">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon Glyph="&#xE768;" FontSize="12" Foreground="#10B981" />
+                                <TextBlock Text="Riprendi" FontSize="12" />
+                            </StackPanel>
+                        </Button>
+
+                        <Button Command="{x:Bind ViewModel.PauseTaskCommand}" Padding="8,6,8,6" ToolTipService.ToolTip="Metti in pausa selezionato">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon Glyph="&#xE769;" FontSize="12" Foreground="#F59E0B" />
+                                <TextBlock Text="Pausa" FontSize="12" />
+                            </StackPanel>
+                        </Button>
+
+                        <Button Command="{x:Bind ViewModel.DeleteTaskCommand}" Padding="8,6,8,6" ToolTipService.ToolTip="Rimuovi selezionato">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon Glyph="&#xE74D;" FontSize="12" Foreground="#EF4444" />
+                                <TextBlock Text="Elimina" FontSize="12" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+
+                    <!-- Search Input -->
+                    <AutoSuggestBox
+                        Grid.Column="1"
+                        PlaceholderText="Cerca tra i download..."
+                        QueryIcon="Find"
+                        Text="{x:Bind ViewModel.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                </Grid>
+
+                <!-- Table Header Row -->
+                <Border Grid.Row="1" Background="#12FFFFFF" CornerRadius="6" Padding="12,0,12,0">
+                    <Grid VerticalAlignment="Center">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="34" />
+                            <ColumnDefinition Width="4*" />
+                            <ColumnDefinition Width="110" />
+                            <ColumnDefinition Width="150" />
+                            <ColumnDefinition Width="130" />
+                            <ColumnDefinition Width="180" />
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0" Text="#" FontSize="11" Foreground="#9CA3AF" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="1" Text="Nome File" FontSize="11" Foreground="#9CA3AF" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="2" Text="Categoria" FontSize="11" Foreground="#9CA3AF" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="3" Text="Dimensione" FontSize="11" Foreground="#9CA3AF" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="4" Text="Velocità / Stato" FontSize="11" Foreground="#9CA3AF" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="5" Text="Avanzamento" FontSize="11" Foreground="#9CA3AF" FontWeight="SemiBold" />
+                    </Grid>
+                </Border>
+
+                <!-- Task List View -->
+                <ListView
+                    Grid.Row="2"
+                    ItemsSource="{x:Bind ViewModel.FilteredTasks, Mode=OneWay}"
+                    SelectedItem="{x:Bind ViewModel.SelectedTask, Mode=TwoWay}"
+                    SelectionMode="Single">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="vm:TaskItemViewModel">
+                            <Grid Padding="4,6,4,6" Height="48">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="34" />
+                                    <ColumnDefinition Width="4*" />
+                                    <ColumnDefinition Width="110" />
+                                    <ColumnDefinition Width="150" />
+                                    <ColumnDefinition Width="130" />
+                                    <ColumnDefinition Width="180" />
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Status Glyph Icon -->
+                                <FontIcon Grid.Column="0" Glyph="{x:Bind StatusIconGlyph, Mode=OneWay}" FontSize="14" HorizontalAlignment="Left" VerticalAlignment="Center" />
+
+                                <!-- File Name & Source URL -->
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2" Padding="0,0,10,0">
+                                    <TextBlock Text="{x:Bind Filename, Mode=OneWay}" FontWeight="Medium" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{x:Bind Url, Mode=OneWay}" FontSize="10" Foreground="#6B7280" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+
+                                <!-- Category Badge -->
+                                <Border Grid.Column="2" Background="#1E293B" CornerRadius="4" Padding="6,2,6,2" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind Category, Mode=OneWay}" FontSize="10" Foreground="#94A3B8" />
+                                </Border>
+
+                                <!-- Downloaded / Total Size -->
+                                <TextBlock Grid.Column="3" Text="{x:Bind DownloadedFormatted, Mode=OneWay}" FontSize="11" Foreground="#D1D5DB" VerticalAlignment="Center" />
+
+                                <!-- Live Speed & Status Description -->
+                                <StackPanel Grid.Column="4" VerticalAlignment="Center" Spacing="2">
+                                    <TextBlock Text="{x:Bind SpeedFormatted, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" Foreground="#60A5FA" />
+                                    <TextBlock Text="{x:Bind StatusDisplay, Mode=OneWay}" FontSize="10" Foreground="#9CA3AF" />
+                                </StackPanel>
+
+                                <!-- Progress Bar & ETA -->
+                                <StackPanel Grid.Column="5" VerticalAlignment="Center" Spacing="3">
+                                    <ProgressBar Value="{x:Bind Progress, Mode=OneWay}" Minimum="0" Maximum="100" Height="4" />
+                                    <Grid>
+                                        <TextBlock Text="{x:Bind ProgressPercentageFormatted, Mode=OneWay}" FontSize="10" Foreground="#9CA3AF" HorizontalAlignment="Left" />
+                                        <TextBlock Text="{x:Bind EtaFormatted, Mode=OneWay}" FontSize="10" Foreground="#9CA3AF" HorizontalAlignment="Right" />
+                                    </Grid>
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Grid>
+        </NavigationView>
+
+        <!-- Bottom Status Bar -->
+        <Border Grid.Row="2" Background="#14FFFFFF" BorderBrush="#22FFFFFF" BorderThickness="0,1,0,0" Padding="16,0,16,0">
+            <Grid VerticalAlignment="Center">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Left: Aggregate Throughput -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="⬇ DL:" FontSize="11" Foreground="#60A5FA" FontWeight="SemiBold" />
+                        <TextBlock Text="{x:Bind ViewModel.AggregateDownloadSpeed, Mode=OneWay}" FontSize="11" Foreground="#FFFFFF" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="⬆ UL:" FontSize="11" Foreground="#34D399" FontWeight="SemiBold" />
+                        <TextBlock Text="{x:Bind ViewModel.AggregateUploadSpeed, Mode=OneWay}" FontSize="11" Foreground="#FFFFFF" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="Totale:" FontSize="11" Foreground="#9CA3AF" />
+                        <TextBlock Text="{x:Bind ViewModel.TotalDownloaded, Mode=OneWay}" FontSize="11" Foreground="#D1D5DB" />
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Center: Active Interfaces Summary -->
+                <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.ActiveAdaptersSummary, Mode=OneWay}" FontSize="11" Foreground="#6B7280" HorizontalAlignment="Center" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+
+                <!-- Right: VPN Shield & Connection Status -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <Border Background="#1010B981" BorderBrush="#10B981" BorderThickness="1" CornerRadius="4" Padding="6,2,6,2">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <FontIcon Glyph="&#xE72E;" FontSize="10" Foreground="#10B981" />
+                            <TextBlock Text="{x:Bind ViewModel.VpnShieldStatusText, Mode=OneWay}" FontSize="10" Foreground="#10B981" FontWeight="Medium" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Background="#153B82F6" CornerRadius="4" Padding="6,2,6,2">
+                        <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}" FontSize="10" Foreground="#93C5FD" />
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

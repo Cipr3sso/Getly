@@ -1,0 +1,36 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{F1B5A97B-B8BC-4DCD-9EB0-11A73E368A3A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Getly.UI", "src\Getly.UI\Getly.UI.csproj", "{7571AA22-EA38-4408-8802-D21E9AAFB190}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{2DF5CD43-FDB9-464F-90B3-EBCC2E7573DA}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Getly.UI.Tests", "tests\Getly.UI.Tests\Getly.UI.Tests.csproj", "{2DEA5093-2112-4B0C-B5CD-FB068CFC0C0F}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{7571AA22-EA38-4408-8802-D21E9AAFB190}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{7571AA22-EA38-4408-8802-D21E9AAFB190}.Debug|Any CPU.Build.0 = Debug|x64
+		{7571AA22-EA38-4408-8802-D21E9AAFB190}.Release|Any CPU.ActiveCfg = Release|x64
+		{7571AA22-EA38-4408-8802-D21E9AAFB190}.Release|Any CPU.Build.0 = Release|x64
+		{2DEA5093-2112-4B0C-B5CD-FB068CFC0C0F}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{2DEA5093-2112-4B0C-B5CD-FB068CFC0C0F}.Debug|Any CPU.Build.0 = Debug|x64
+		{2DEA5093-2112-4B0C-B5CD-FB068CFC0C0F}.Release|Any CPU.ActiveCfg = Release|x64
+		{2DEA5093-2112-4B0C-B5CD-FB068CFC0C0F}.Release|Any CPU.Build.0 = Release|x64
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{7571AA22-EA38-4408-8802-D21E9AAFB190} = {F1B5A97B-B8BC-4DCD-9EB0-11A73E368A3A}
+		{2DEA5093-2112-4B0C-B5CD-FB068CFC0C0F} = {2DF5CD43-FDB9-464F-90B3-EBCC2E7573DA}
+	EndGlobalSection
+EndGlobal
