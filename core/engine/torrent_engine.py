@@ -206,15 +206,6 @@ class TorrentSessionManager:
             base_settings["listen_interfaces"] = f"{vpn_target}:6881"
             base_settings["outgoing_interfaces"] = vpn_target
             self._session.apply_settings(base_settings)
-
-    def set_download_rate_limit(self, limit_bps: int) -> None:
-        """Applies download rate limit to libtorrent session (0 = unlimited)."""
-        if self._session:
-            try:
-                self._session.apply_settings({"download_rate_limit": max(0, limit_bps)})
-                logger.info("TorrentSessionManager: updated download_rate_limit to %d B/s", limit_bps)
-            except Exception as exc:
-                logger.error("Failed to set torrent download rate limit: %s", exc)
             logger.info("Updated libtorrent to strict VPN binding on %s:6881", vpn_target)
         elif self.interface_ips:
             valid_ips = [ip for ip in self.interface_ips if ip and ip != "127.0.0.1"]
@@ -232,6 +223,25 @@ class TorrentSessionManager:
                 self._session.add_dht_node((host, port))
             except Exception as exc:
                 logger.debug("Could not re-add DHT node %s:%s: %s", host, port, exc)
+
+    def set_download_rate_limit(self, limit_bps: int) -> None:
+        """Applies download rate limit to libtorrent session (0 = unlimited)."""
+        if self._session:
+            try:
+                self._session.apply_settings({"download_rate_limit": max(0, limit_bps)})
+                logger.info("TorrentSessionManager: updated download_rate_limit to %d B/s", limit_bps)
+            except Exception as exc:
+                logger.error("Failed to set torrent download rate limit: %s", exc)
+
+    def close(self) -> None:
+        """Closes and releases the libtorrent session cleanly."""
+        if self._session:
+            try:
+                self._session.pause()
+            except Exception:
+                pass
+            self._session = None
+        TorrentSessionManager._instance = None
 
     @property
     def session(self) -> lt.session:

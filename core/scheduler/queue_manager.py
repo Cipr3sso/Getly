@@ -311,8 +311,18 @@ class QueueManager:
         logger.info("Cancelled task %s", task_id)
         return True
 
-    async def delete_task(self, task_id: str) -> bool:
-        """Cancels and deletes a task from storage and memory."""
+    async def delete_task(self, task_id: str, delete_files: bool = False) -> bool:
+        """Cancels and deletes a task from storage and memory, optionally deleting files on disk."""
+        task = self.get_task(task_id)
+        if delete_files and task:
+            try:
+                target = getattr(task, "target_file", None)
+                if target and target.exists():
+                    target.unlink(missing_ok=True)
+                    logger.info("Deleted physical file for task %s: %s", task_id, target)
+            except Exception as exc:
+                logger.warning("Error deleting file on disk for task %s: %s", task_id, exc)
+
         await self.cancel_task(task_id)
         self._tasks.pop(task_id, None)
         self.state_store.delete_task(task_id)
