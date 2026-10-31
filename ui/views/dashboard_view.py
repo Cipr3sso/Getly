@@ -332,6 +332,7 @@ class DashboardView(ft.Container):
             self._secondary_buttons.append(btn)
             return btn
 
+        btn_batch = _make_sec_btn(ft.Icons.DYNAMIC_FEED_ROUNDED, "Batch", self._handle_add_batch, "Aggiungi download sequenziali in batch da pattern", color=ACCENT_LIGHT, border_color="rgba(0, 120, 212, 0.35)")
         btn_resume_sel = _make_sec_btn(ft.Icons.PLAY_ARROW_ROUNDED, "Avvia selezione", self._handle_resume_selected, "Avvia tutti i download selezionati")
         btn_pause_sel = _make_sec_btn(ft.Icons.PAUSE_ROUNDED, "Pausa selezione", self._handle_pause_selected, "Metti in pausa i download selezionati")
         btn_details = _make_sec_btn(ft.Icons.INFO_OUTLINE_ROUNDED, "Dettagli", self._handle_open_selected_details, "Mostra dettagli completi del download selezionato")
@@ -350,6 +351,7 @@ class DashboardView(ft.Container):
                 controls=[
                     self.btn_filters,
                     btn_add,
+                    btn_batch,
                     _make_divider(),
                     btn_resume_sel,
                     _make_divider(),
@@ -787,6 +789,14 @@ class DashboardView(ft.Container):
                 on_added=self.refresh_tasks,
             )
             e.page.show_dialog(dialog)
+
+    def _handle_add_batch(self, e: ft.ControlEvent) -> None:
+        from ui.components.batch_dialog import BatchDownloadDialog
+        dialog = BatchDownloadDialog(
+            coordinator=self.coordinator,
+            on_added=self.refresh_tasks,
+        )
+        dialog.show(self.page or (e.page if hasattr(e, "page") else None))
 
     def _open_task_details(self, task: DownloadTask) -> None:
         """Opens complete technical and file details dialog for the given task."""

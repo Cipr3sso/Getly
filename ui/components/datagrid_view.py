@@ -355,10 +355,279 @@ class DownloadDataGrid(ft.Container):
             "task": task,
         }
 
+        context_items = self._build_context_items(task)
+        context_menu = ft.ContextMenu(
+            content=row_ctrl,
+            secondary_items=context_items,
+        )
+
         return ft.GestureDetector(
             on_double_tap=lambda e, t=task: self._handle_open_details(t),
-            content=row_ctrl,
+            on_secondary_tap=lambda e, t=task: self._handle_secondary_tap(t),
+            content=context_menu,
         )
+
+    def _build_context_items(self, task: DownloadTask) -> list[ft.PopupMenuItem]:
+        items: list[ft.PopupMenuItem] = []
+
+        # 1. Avvia / Pausa
+        if task.status == DownloadStatus.DOWNLOADING:
+            items.append(
+                ft.PopupMenuItem(
+                    content="Metti in Pausa",
+                    icon=ft.Icons.PAUSE_ROUNDED,
+                    on_click=lambda e, tid=task.task_id: self._handle_pause(tid),
+                )
+            )
+        else:
+            items.append(
+                ft.PopupMenuItem(
+                    content="Avvia Download",
+                    icon=ft.Icons.PLAY_ARROW_ROUNDED,
+                    on_click=lambda e, tid=task.task_id: self._handle_resume(tid),
+                )
+            )
+
+        # 2. Apri cartella contenitrice
+        items.append(
+            ft.PopupMenuItem(
+                content="Apri cartella contenitrice",
+                icon=ft.Icons.FOLDER_OPEN_ROUNDED,
+                on_click=lambda e, t=task: self.coordinator.open_containing_folder(t),
+            )
+        )
+
+        # 3. Apri / Esegui file (solo se COMPLETED)
+        is_completed = (task.status == DownloadStatus.COMPLETED)
+        items.append(
+            ft.PopupMenuItem(
+                content="Apri / Esegui file",
+                icon=ft.Icons.FILE_OPEN_ROUNDED,
+                disabled=not is_completed,
+                on_click=lambda e, t=task: self.coordinator.open_file(t),
+            )
+        )
+
+        # 4. Copia indirizzo sorgente
+        items.append(
+            ft.PopupMenuItem(
+                content="Copia indirizzo sorgente",
+                icon=ft.Icons.COPY_ROUNDED,
+                on_click=lambda e, u=task.url: self._copy_source_url(u),
+            )
+        )
+
+        # 5. Aggiorna link di download...
+        items.append(
+            ft.PopupMenuItem(
+                content="Aggiorna link di download...",
+                icon=ft.Icons.SYNC_ROUNDED,
+                on_click=lambda e, t=task: self._open_refresh_url_dialog(t),
+            )
+        )
+
+        # 6. Verifica integrità (Hash)...
+        items.append(
+            ft.PopupMenuItem(
+                content="Verifica integrità (Hash)...",
+                icon=ft.Icons.SHIELD_ROUNDED,
+                on_click=lambda e, t=task: self._open_hash_dialog(t),
+            )
+        )
+
+        # 7. Visualizza dettagli
+        items.append(
+            ft.PopupMenuItem(
+                content="Visualizza dettagli",
+                icon=ft.Icons.INFO_OUTLINE_ROUNDED,
+                on_click=lambda e, t=task: self._handle_open_details(t),
+            )
+        )
+
+        # 8. Divisore
+        items.append(
+            ft.PopupMenuItem(
+                content=ft.Divider(color=BORDER_COLOR, height=1),
+                height=10,
+            )
+        )
+
+        # 9. Rimuovi dalla lista
+        items.append(
+            ft.PopupMenuItem(
+                content="Rimuovi dalla lista",
+                icon=ft.Icons.CLOSE_ROUNDED,
+                on_click=lambda e, tid=task.task_id: self._handle_delete(tid),
+            )
+        )
+
+        # 10. Elimina file su disco e rimuovi
+        items.append(
+            ft.PopupMenuItem(
+                content="Elimina file su disco e rimuovi",
+                icon=ft.Icons.DELETE_FOREVER_ROUNDED,
+                on_click=lambda e, t=task: self._confirm_delete_file_and_task(t),
+            )
+        )
+
+        return items
+
+    def _copy_source_url(self, url: str) -> None:
+        self.coordinator.copy_to_clipboard(url)
+        if self.page:
+            self.page.snack_bar = ft.SnackBar(
+                content=ft.Text("Indirizzo sorgente copiato negli appunti!", size=12, color="#FFFFFF"),
+                bgcolor="rgba(24, 24, 27, 0.95)",
+                duration=2000,
+            )
+            self.page.snack_bar.open = True
+            safe_update(self.page)
+
+    def _open_hash_dialog(self, task: DownloadTask) -> None:
+        from ui.components.hash_dialog import HashDialog
+        dialog = HashDialog(task=task, coordinator=self.coordinator)
+        dialog.show(self.page)
+
+    def _open_refresh_url_dialog(self, task: DownloadTask) -> None:
+        url_input = ft.TextField(
+            label="Nuovo indirizzo URL di download",
+            value=task.url,
+            text_size=11,
+            dense=True,
+            bgcolor=SURFACE_CARD,
+            border_color=BORDER_COLOR,
+            focused_border_color=ACCENT_BLUE,
+            color=TEXT_PRIMARY,
+            multiline=True,
+            min_lines=2,
+            max_lines=4,
+        )
+        dialog = ft.AlertDialog(
+            bgcolor=BG_PANEL,
+            shape=ft.RoundedRectangleBorder(radius=10),
+            title=ft.Row(
+                spacing=8,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Icon(ft.Icons.SYNC_ROUNDED, color=ACCENT_LIGHT, size=20),
+                    ft.Text("Aggiorna Link di Download", size=15, weight=ft.FontWeight.W_600, color=TEXT_PRIMARY),
+                ],
+            ),
+            content=ft.Container(
+                width=520,
+                content=ft.Column(
+                    tight=True,
+                    spacing=10,
+                    controls=[
+                        ft.Text(
+                            "Inserisci il nuovo URL valido. I chunk e byte già scaricati su disco verranno mantenuti.",
+                            size=11,
+                            color=TEXT_SECONDARY,
+                        ),
+                        url_input,
+                    ],
+                ),
+            ),
+            actions=[
+                ft.TextButton(
+                    content="Annulla",
+                    on_click=lambda e: self._close_dialog(dialog),
+                    style=ft.ButtonStyle(color=TEXT_SECONDARY),
+                ),
+                ft.FilledButton(
+                    content="Aggiorna e Riprendi",
+                    style=ft.ButtonStyle(bgcolor=ACCENT_BLUE, color="#FFFFFF"),
+                    on_click=lambda e: self._execute_update_url(task.task_id, url_input.value, dialog),
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        self._show_dialog(dialog)
+
+    def _confirm_delete_file_and_task(self, task: DownloadTask) -> None:
+        fn = task.filename or task.url
+        dialog = ft.AlertDialog(
+            bgcolor=BG_PANEL,
+            shape=ft.RoundedRectangleBorder(radius=10),
+            title=ft.Row(
+                spacing=8,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    ft.Icon(ft.Icons.DELETE_FOREVER_ROUNDED, color="#EF4444", size=20),
+                    ft.Text("Elimina File Fisico e Rimuovi", size=15, weight=ft.FontWeight.W_600, color=TEXT_PRIMARY),
+                ],
+            ),
+            content=ft.Container(
+                width=480,
+                content=ft.Text(
+                    f"Sei sicuro di voler eliminare definitivamente il file '{fn}' dal disco e rimuoverlo dalla lista?",
+                    size=12,
+                    color=TEXT_PRIMARY,
+                ),
+            ),
+            actions=[
+                ft.TextButton(
+                    content="Annulla",
+                    on_click=lambda e: self._close_dialog(dialog),
+                    style=ft.ButtonStyle(color=TEXT_SECONDARY),
+                ),
+                ft.FilledButton(
+                    content="Elimina definitivamente",
+                    style=ft.ButtonStyle(bgcolor="#EF4444", color="#FFFFFF"),
+                    on_click=lambda e: self._execute_delete_file_and_task(task.task_id, dialog),
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        self._show_dialog(dialog)
+
+    def _execute_update_url(self, task_id: str, new_url: str, dialog: ft.AlertDialog) -> None:
+        clean = (new_url or "").strip()
+        if not clean:
+            return
+
+        async def _run():
+            await self.coordinator.update_task_url(task_id, clean, restart=True)
+            if self.on_action:
+                self.on_action()
+
+        if self.page:
+            self.page.run_task(_run)
+        self._close_dialog(dialog)
+
+    def _execute_delete_file_and_task(self, task_id: str, dialog: ft.AlertDialog) -> None:
+        async def _run():
+            await self.coordinator.delete_task_and_file(task_id)
+            if self.on_action:
+                self.on_action()
+
+        if self.page:
+            self.page.run_task(_run)
+        self._close_dialog(dialog)
+
+    def _show_dialog(self, dialog: ft.AlertDialog) -> None:
+        if not self.page:
+            return
+        if hasattr(self.page, "open"):
+            self.page.open(dialog)
+        elif hasattr(self.page, "show_dialog"):
+            self.page.show_dialog(dialog)
+        else:
+            self.page.dialog = dialog
+            dialog.open = True
+            safe_update(self.page)
+
+    def _close_dialog(self, dialog: ft.AlertDialog) -> None:
+        if self.page:
+            if hasattr(self.page, "close"):
+                self.page.close(dialog)
+            else:
+                dialog.open = False
+                safe_update(self.page)
+
+    def _handle_secondary_tap(self, task: DownloadTask) -> None:
+        # Programmatic handler for right click
+        pass
 
     def _handle_open_details(self, task: DownloadTask) -> None:
         if self.on_open_details:

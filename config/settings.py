@@ -41,6 +41,18 @@ class DownloaderSettings(BaseModel):
     storage: StorageSettings = Field(default_factory=StorageSettings)
     max_global_connections: int = Field(default=32, description="Global TCP connection limit")
     max_connections_per_host: int = Field(default=8, description="Max connections per remote host")
+    download_limit_bytes_per_sec: int = Field(
+        default=0,
+        description="Global download rate limit in bytes/sec (0 = unlimited)"
+    )
+
+
+# Speed Limiter Presets (Bytes per second)
+SPEED_LIMIT_UNLIMITED = 0
+SPEED_LIMIT_1_MB = 1 * 1024 * 1024
+SPEED_LIMIT_2_MB = 2 * 1024 * 1024
+SPEED_LIMIT_5_MB = 5 * 1024 * 1024
+SPEED_LIMIT_10_MB = 10 * 1024 * 1024
 
 
 settings = DownloaderSettings()

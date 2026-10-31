@@ -64,11 +64,19 @@ class TorrentSessionManager:
         ("dht.libtorrent.org", 25401),
     ]
 
-    def __init__(self, interface_ips: Optional[List[str]] = None, vpn_shield: bool = True):
+    def __init__(self, interface_ips: Optional[Any] = None, vpn_shield: bool = True):
         if not LIBTORRENT_AVAILABLE:
             raise RuntimeError("libtorrent is not installed. Please install libtorrent>=2.0.0.")
 
-        self.interface_ips = interface_ips or []
+        if interface_ips is not None and not isinstance(interface_ips, (list, tuple, set)):
+            if hasattr(interface_ips, "active_adapters"):
+                interface_ips = [a.ip for a in interface_ips.active_adapters if a.ip]
+            elif hasattr(interface_ips, "all_adapters"):
+                interface_ips = [a.ip for a in interface_ips.all_adapters if a.ip]
+            else:
+                interface_ips = []
+
+        self.interface_ips = list(interface_ips) if interface_ips else []
         self.vpn_shield = vpn_shield
         self._session: Optional[lt.session] = None
         self._init_session()
@@ -76,13 +84,19 @@ class TorrentSessionManager:
     @classmethod
     def get_instance(
         cls,
-        interface_ips: Optional[List[str]] = None,
+        interface_ips: Optional[Any] = None,
         vpn_shield: bool = True,
         session_pool: Optional[Any] = None,
     ) -> "TorrentSessionManager":
+        if interface_ips is not None and not isinstance(interface_ips, (list, tuple, set)):
+            session_pool = interface_ips
+            interface_ips = None
+
         if session_pool is not None:
             if hasattr(session_pool, "active_adapters"):
                 interface_ips = [a.ip for a in session_pool.active_adapters if a.ip]
+            elif hasattr(session_pool, "all_adapters"):
+                interface_ips = [a.ip for a in session_pool.all_adapters if a.ip]
             if hasattr(session_pool, "vpn_shield_enabled"):
                 vpn_shield = session_pool.vpn_shield_enabled
 
@@ -91,7 +105,7 @@ class TorrentSessionManager:
         else:
             cls._instance.vpn_shield = vpn_shield
             if interface_ips:
-                cls._instance.interface_ips = interface_ips
+                cls._instance.interface_ips = list(interface_ips)
             cls._instance._apply_interface_settings()
         return cls._instance
 
@@ -109,7 +123,9 @@ class TorrentSessionManager:
             logger.debug("Error detecting VPN adapters for torrent session: %s", exc)
 
         # Fallback inspection of given interface_ips
-        return [ip for ip in self.interface_ips if ip and ip.startswith("10.5.0.")]
+        if isinstance(self.interface_ips, (list, tuple, set)):
+            return [ip for ip in self.interface_ips if isinstance(ip, str) and ip.startswith("10.5.0.")]
+        return []
 
     def _init_session(self) -> None:
         bootstrap_nodes_str = ",".join(f"{h}:{p}" for h, p in self.DHT_ROUTERS)
@@ -150,6 +166,13 @@ class TorrentSessionManager:
                 if valid_ips:
                     settings["outgoing_interfaces"] = ",".join(valid_ips)
 
+        try:
+            from config.settings import settings as app_settings
+            if getattr(app_settings, "download_limit_bytes_per_sec", 0) > 0:
+                settings["download_rate_limit"] = app_settings.download_limit_bytes_per_sec
+        except Exception:
+            pass
+
         self._session = lt.session(settings)
 
         # Bootstrap popular public DHT routers
@@ -183,6 +206,15 @@ class TorrentSessionManager:
             base_settings["listen_interfaces"] = f"{vpn_target}:6881"
             base_settings["outgoing_interfaces"] = vpn_target
             self._session.apply_settings(base_settings)
+
+    def set_download_rate_limit(self, limit_bps: int) -> None:
+        """Applies download rate limit to libtorrent session (0 = unlimited)."""
+        if self._session:
+            try:
+                self._session.apply_settings({"download_rate_limit": max(0, limit_bps)})
+                logger.info("TorrentSessionManager: updated download_rate_limit to %d B/s", limit_bps)
+            except Exception as exc:
+                logger.error("Failed to set torrent download rate limit: %s", exc)
             logger.info("Updated libtorrent to strict VPN binding on %s:6881", vpn_target)
         elif self.interface_ips:
             valid_ips = [ip for ip in self.interface_ips if ip and ip != "127.0.0.1"]

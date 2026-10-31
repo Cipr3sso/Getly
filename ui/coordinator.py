@@ -315,6 +315,61 @@ class UICoordinator:
         self.notify_listeners()
         return res
 
+    async def update_task_url(self, task_id: str, new_url: str, restart: bool = True) -> bool:
+        """Updates the download URL for expired CDN links, keeping downloaded chunks."""
+        res = await self.queue_manager.update_task_url(task_id, new_url, restart=restart)
+        self.notify_listeners()
+        return res
+
+    async def delete_task_and_file(self, task_id: str) -> bool:
+        """Cancels/deletes the task and permanently removes the file on disk."""
+        task = self.queue_manager.get_task(task_id)
+        if task:
+            try:
+                target = task.target_file
+                if target and target.exists():
+                    target.unlink(missing_ok=True)
+                    logger.info("Deleted physical file for task %s: %s", task_id, target)
+            except Exception as exc:
+                logger.warning("Error deleting file on disk for task %s: %s", task_id, exc)
+        return await self.delete_task(task_id)
+
+    def set_download_limit(self, limit_bps: int) -> None:
+        """Configures global throughput limiter for both HTTP and BitTorrent engines."""
+        from core.engine.speed_limiter import SpeedLimiter
+        from config.settings import settings as app_settings
+        SpeedLimiter.get_instance().set_limit(limit_bps)
+        app_settings.download_limit_bytes_per_sec = limit_bps
+        try:
+            from core.engine.torrent_engine import TorrentSessionManager
+            mgr = TorrentSessionManager.get_instance()
+            if mgr:
+                mgr.set_download_rate_limit(limit_bps)
+        except Exception:
+            pass
+
+    def get_download_limit(self) -> int:
+        """Returns the current throughput limit in bytes/sec (0 = unlimited)."""
+        from core.engine.speed_limiter import SpeedLimiter
+        return SpeedLimiter.get_instance().get_limit()
+
+    def open_file(self, task: DownloadTask) -> bool:
+        """Executes or opens the completed file using the system default application."""
+        try:
+            target = task.target_file
+            if target and target.exists():
+                if platform.system() == "Windows":
+                    os.startfile(str(target))
+                elif platform.system() == "Darwin":
+                    subprocess.Popen(["open", str(target)])
+                else:
+                    subprocess.Popen(["xdg-open", str(target)])
+                return True
+            return False
+        except Exception as exc:
+            logger.error("Failed to execute/open file: %s", exc)
+            return False
+
     def toggle_adapter(self, adapter_name: str, enable: bool) -> bool:
         """Enables or disables an adapter in the session pool."""
         if enable:

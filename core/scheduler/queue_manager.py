@@ -319,6 +319,80 @@ class QueueManager:
         logger.info("Deleted task %s", task_id)
         return True
 
+    async def update_task_url(self, task_id: str, new_url: str, restart: bool = True) -> bool:
+        """
+        Updates task.url for expired/temporary CDN links (e.g. YouTube, Google Drive, MEGA).
+        Preserves previously written chunks and bytes on disk.
+        If task was failed/error, clears error and restarts or pauses based on restart flag.
+        """
+        task = self.get_task(task_id)
+        if not task:
+            logger.warning("update_task_url: task %s not found", task_id)
+            return False
+
+        clean_url = new_url.strip()
+
+        # Check if an extension or streaming bridge can resolve this new URL
+        source_ip = None
+        if hasattr(self, "session_pool") and self.session_pool:
+            if getattr(self.session_pool, "primary_adapter", None):
+                source_ip = self.session_pool.primary_adapter.ip
+            elif getattr(self.session_pool, "all_adapters", None) and len(self.session_pool.all_adapters) > 0:
+                source_ip = self.session_pool.all_adapters[0].ip
+
+        resolved = None
+        if self.extension_manager:
+            try:
+                resolved = self.extension_manager.resolve_url(clean_url, source_address=source_ip)
+            except Exception as exc:
+                logger.debug("Error resolving updated URL through extensions: %s", exc)
+
+        if not resolved:
+            try:
+                from core.extensions.engine import is_video_streaming_url, resolve_with_ytdlp
+                if is_video_streaming_url(clean_url):
+                    resolved = resolve_with_ytdlp(clean_url, source_address=source_ip)
+            except Exception as exc:
+                logger.debug("Streaming bridge resolution error: %s", exc)
+
+        if resolved and (resolved.url or resolved.files):
+            direct_url = resolved.url or (resolved.files[0].url if resolved.files else "")
+            if direct_url:
+                clean_url = direct_url
+                if resolved.headers:
+                    task.headers = dict(resolved.headers)
+                elif resolved.files and resolved.files[0].headers:
+                    task.headers = dict(resolved.files[0].headers)
+                if task.headers:
+                    for h_k, h_v in task.headers.items():
+                        lk = h_k.lower()
+                        if lk == "cookie":
+                            task.cookies = h_v
+                        elif lk == "user-agent":
+                            task.user_agent = h_v
+                        elif lk == "referer":
+                            task.referer = h_v
+
+        # Cancel active engine if running
+        active_engine = self._active_engines.get(task_id)
+        if active_engine:
+            await active_engine.cancel()
+
+        task.url = clean_url
+        task.error_message = None
+
+        if restart:
+            task.status = DownloadStatus.PENDING
+            self.state_store.save_task(task)
+            await self._task_queue.put(task)
+            logger.info("Updated URL for task %s and re-queued: %s", task_id, clean_url)
+        else:
+            task.status = DownloadStatus.PAUSED
+            self.state_store.save_task(task)
+            logger.info("Updated URL for task %s in PAUSED state: %s", task_id, clean_url)
+
+        return True
+
     def get_torrent_files_status(self, task_id: str) -> List[Dict[str, Any]]:
         """Returns live file status for a torrent download task."""
         task = self.get_task(task_id)
@@ -426,6 +500,8 @@ class QueueManager:
                     referer=task.referer,
                     user_agent=task.user_agent,
                     custom_headers=task.headers,
+                    task_id=task.task_id,
+                    state_store=self.state_store,
                 )
             self._active_engines[task.task_id] = engine
 

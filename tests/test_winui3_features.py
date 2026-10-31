@@ -226,7 +226,9 @@ async def test_datagrid_column_dimensions_and_no_wrap(tmp_path: Path):
     grid.set_tasks([task_err])
 
     row = grid.rows_column.controls[0]
-    row_ctrl = row.content if hasattr(row, "content") else row
+    row_ctrl = row
+    while hasattr(row_ctrl, "content") and not isinstance(getattr(row_ctrl, "content", None), ft.Row):
+        row_ctrl = row_ctrl.content
     row_controls = row_ctrl.content.controls
     assert row_controls[0].width == 34
     # Filename container

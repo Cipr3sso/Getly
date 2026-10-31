@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from pathlib import Path
-from typing import Optional, List, Dict, Callable
+from typing import Optional, List, Dict, Callable, Any
 import aiohttp
 
 from core.network.models import NetworkAdapter
@@ -11,6 +11,7 @@ from .storage import StorageEngine
 from .chunk_planner import ChunkPlanner, Chunk
 from .worker import ChunkWorker
 from .host_coordinator import HostCoordinator
+from .speed_limiter import SpeedLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,9 @@ class DownloadEngine:
         referer: Optional[str] = None,
         user_agent: Optional[str] = None,
         custom_headers: Optional[dict] = None,
+        speed_limiter: Optional[SpeedLimiter] = None,
+        task_id: Optional[str] = None,
+        state_store: Optional[Any] = None,
     ):
         self.url = url
         self.destination_dir = Path(destination_dir)
@@ -63,6 +67,9 @@ class DownloadEngine:
         self.referer = referer
         self.user_agent = user_agent
         self.custom_headers = custom_headers
+        self.speed_limiter = speed_limiter or SpeedLimiter.get_instance()
+        self.task_id = task_id
+        self.state_store = state_store
 
         self.info: Optional[RemoteResourceInfo] = None
         self.storage: Optional[StorageEngine] = None
@@ -154,10 +161,26 @@ class DownloadEngine:
             )
             return await self._download_single_stream(primary_session, filepath)
 
+        existing_chunks = None
+        if self.state_store and self.task_id:
+            try:
+                loaded = self.state_store.load_chunks(self.task_id)
+                if loaded and sum(c.size for c in loaded) == self.info.total_size:
+                    existing_chunks = loaded
+                    logger.info("Resuming %d existing chunks for task %s", len(existing_chunks), self.task_id)
+            except Exception as exc:
+                logger.debug("Could not load existing chunks for %s: %s", self.task_id, exc)
+
         self.planner = ChunkPlanner(
             total_size=self.info.total_size,
             active_interfaces_count=len(self.session_pool.active_adapters),
+            existing_chunks=existing_chunks,
         )
+        if self.state_store and self.task_id and not existing_chunks:
+            try:
+                self.state_store.save_chunks(self.task_id, list(self.planner.chunks.values()))
+            except Exception as exc:
+                logger.debug("Could not save initial chunks: %s", exc)
 
         # 4. Spawn workers distributed across all active network adapters
         active_adapters = self.session_pool.active_adapters
@@ -183,6 +206,7 @@ class DownloadEngine:
                     referer=self.referer,
                     user_agent=self.user_agent,
                     custom_headers=self.custom_headers,
+                    speed_limiter=self.speed_limiter,
                 )
                 self.workers.append(worker)
                 self._worker_tasks.append(asyncio.create_task(worker.run()))
@@ -261,6 +285,22 @@ class DownloadEngine:
             user_agent=self.user_agent,
             custom_headers=self.custom_headers,
         )
+        existing_offset = 0
+        is_preallocated = bool(self.storage and getattr(self.storage, "bytes_written", 0) < (self.info.total_size if self.info else 1))
+        if filepath.exists() and not is_preallocated:
+            try:
+                curr_size = filepath.stat().st_size
+                if curr_size > 0 and self.info and self.info.supports_ranges and self.info.total_size > 0:
+                    if curr_size < self.info.total_size:
+                        existing_offset = curr_size
+                        single_headers["Range"] = f"bytes={existing_offset}-"
+                        logger.info("Resuming single-stream from byte %d for %s", existing_offset, filepath.name)
+                    elif curr_size >= self.info.total_size:
+                        logger.info("File %s already complete (%d bytes)", filepath.name, curr_size)
+                        return True
+            except Exception as exc:
+                logger.debug("Could not inspect existing file size: %s", exc)
+
         try:
             await self.host_coordinator.wait_if_blocked(self.host)
             async with self.host_coordinator.connection_slot(self.host):
@@ -278,11 +318,14 @@ class DownloadEngine:
                     if not primary_adapter and getattr(self.session_pool, "all_adapters", None):
                         primary_adapter = self.session_pool.all_adapters[0]
 
-                    offset = 0
+                    # If server responded with 200 OK (not 206 Partial Content), write from 0
+                    offset = 0 if resp.status == 200 else existing_offset
                     while not self._is_cancelled:
                         block = await resp.content.read(256 * 1024)
                         if not block:
                             break
+                        if self.speed_limiter:
+                            await self.speed_limiter.acquire(len(block))
                         await self.storage.write(offset, block)
                         offset += len(block)
                         self._on_bytes_received(len(block), primary_adapter)

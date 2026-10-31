@@ -11,6 +11,7 @@ from .probe import DEFAULT_HTTP_HEADERS, get_browser_headers
 from .chunk_planner import Chunk, ChunkPlanner
 from .storage import StorageEngine
 from .host_coordinator import HostCoordinator
+from .speed_limiter import SpeedLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,7 @@ class ChunkWorker:
         referer: Optional[str] = None,
         user_agent: Optional[str] = None,
         custom_headers: Optional[dict] = None,
+        speed_limiter: Optional[SpeedLimiter] = None,
     ):
         self.worker_id = worker_id
         self.adapter = adapter
@@ -57,6 +59,7 @@ class ChunkWorker:
         self.referer = referer
         self.user_agent = user_agent
         self.custom_headers = custom_headers
+        self.speed_limiter = speed_limiter or SpeedLimiter.get_instance()
 
         self._is_stopped = False
 
@@ -232,9 +235,12 @@ class ChunkWorker:
                             if not block:
                                 break
 
+                            block_len = len(block)
+                            if self.speed_limiter:
+                                await self.speed_limiter.acquire(block_len)
+
                             # Enqueue to positional storage
                             await self.storage.write(current_offset, block, chunk_id=chunk.chunk_id)
-                            block_len = len(block)
                             current_offset += block_len
                             chunk.bytes_downloaded += block_len
 
