@@ -39,7 +39,8 @@
             IsSettingsVisible="True"
             PaneDisplayMode="Left"
             OpenPaneLength="210"
-            SelectionChanged="NavView_SelectionChanged">
+            SelectionChanged="NavView_SelectionChanged"
+            ItemInvoked="NavView_ItemInvoked">
             <NavigationView.MenuItems>
                 <NavigationViewItem Content="Tutti i download" Tag="ALL">
                     <NavigationViewItem.Icon>
@@ -78,68 +79,47 @@
                 <Grid Grid.Row="0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="260" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
-                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                        <!-- Primary Action: New Download -->
-                        <Button
-                            Click="OnAddDownloadClick"
-                            Style="{StaticResource AccentButtonStyle}"
-                            Padding="12,6,12,6">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <FontIcon Glyph="&#xE710;" FontSize="12" />
-                                <TextBlock Text="Nuovo Download" FontWeight="SemiBold" FontSize="12" />
-                            </StackPanel>
-                        </Button>
-
-                        <AppBarSeparator Margin="4,0,4,0" />
-
-                        <!-- Secondary Actions -->
-                        <Button Command="{x:Bind ViewModel.ResumeTaskCommand}" Padding="8,6,8,6" ToolTipService.ToolTip="Avvia download selezionato">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <FontIcon Glyph="&#xE768;" FontSize="12" Foreground="#10B981" />
-                                <TextBlock Text="Riprendi" FontSize="12" />
-                            </StackPanel>
-                        </Button>
-
-                        <Button Command="{x:Bind ViewModel.PauseTaskCommand}" Padding="8,6,8,6" ToolTipService.ToolTip="Metti in pausa selezionato">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <FontIcon Glyph="&#xE769;" FontSize="12" Foreground="#F59E0B" />
-                                <TextBlock Text="Pausa" FontSize="12" />
-                            </StackPanel>
-                        </Button>
-
-                        <Button Command="{x:Bind ViewModel.DeleteTaskCommand}" Padding="8,6,8,6" ToolTipService.ToolTip="Rimuovi selezionato">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <FontIcon Glyph="&#xE74D;" FontSize="12" Foreground="#EF4444" />
-                                <TextBlock Text="Elimina" FontSize="12" />
-                            </StackPanel>
-                        </Button>
-                    </StackPanel>
+                    <!-- Responsive WinUI 3 CommandBar -->
+                    <CommandBar
+                        Grid.Column="0"
+                        DefaultLabelPosition="Right"
+                        IsDynamicOverflowEnabled="True"
+                        Background="Transparent">
+                        <AppBarButton Icon="Add" Label="Nuovo Download" Click="OnAddDownloadClick" />
+                        <AppBarSeparator />
+                        <AppBarButton Icon="Play" Label="Riprendi" Command="{x:Bind ViewModel.ResumeTaskCommand}" CommandParameter="{x:Bind ViewModel.SelectedTask, Mode=OneWay}" />
+                        <AppBarButton Icon="Pause" Label="Pausa" Command="{x:Bind ViewModel.PauseTaskCommand}" CommandParameter="{x:Bind ViewModel.SelectedTask, Mode=OneWay}" />
+                        <AppBarButton Icon="Delete" Label="Elimina" Command="{x:Bind ViewModel.DeleteTaskCommand}" CommandParameter="{x:Bind ViewModel.SelectedTask, Mode=OneWay}" />
+                    </CommandBar>
 
                     <!-- Search Input -->
                     <AutoSuggestBox
                         Grid.Column="1"
+                        MinWidth="180"
+                        Width="240"
+                        VerticalAlignment="Center"
                         PlaceholderText="Cerca tra i download..."
                         QueryIcon="Find"
                         Text="{x:Bind ViewModel.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                 </Grid>
 
                 <!-- Table Header Row -->
-                <Border Grid.Row="1" Background="#12FFFFFF" CornerRadius="6" Padding="12,0,12,0">
+                <Border Grid.Row="1" Background="#18FFFFFF" CornerRadius="6" Padding="12,0,12,0">
                     <Grid VerticalAlignment="Center">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="34" />
-                            <ColumnDefinition Width="4*" />
+                            <ColumnDefinition Width="40" />
+                            <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="110" />
-                            <ColumnDefinition Width="150" />
-                            <ColumnDefinition Width="130" />
-                            <ColumnDefinition Width="180" />
+                            <ColumnDefinition Width="120" />
+                            <ColumnDefinition Width="120" />
+                            <ColumnDefinition Width="140" />
                         </Grid.ColumnDefinitions>
 
-                        <TextBlock Grid.Column="0" Text="#" FontSize="11" Foreground="#9CA3AF" FontWeight="SemiBold" />
-                        <TextBlock Grid.Column="1" Text="Nome File" FontSize="11" Foreground="#9CA3AF" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="0" Text="#" FontSize="11" Foreground="#9CA3AF" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Text="Nome File" FontSize="11" Foreground="#9CA3AF" FontWeight="SemiBold" Margin="4,0,0,0" />
                         <TextBlock Grid.Column="2" Text="Categoria" FontSize="11" Foreground="#9CA3AF" FontWeight="SemiBold" />
                         <TextBlock Grid.Column="3" Text="Dimensione" FontSize="11" Foreground="#9CA3AF" FontWeight="SemiBold" />
                         <TextBlock Grid.Column="4" Text="Velocità / Stato" FontSize="11" Foreground="#9CA3AF" FontWeight="SemiBold" />
@@ -153,50 +133,78 @@
                     ItemsSource="{x:Bind ViewModel.FilteredTasks, Mode=OneWay}"
                     SelectedItem="{x:Bind ViewModel.SelectedTask, Mode=TwoWay}"
                     SelectionMode="Single">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Margin" Value="0,2,0,2" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="vm:TaskItemViewModel">
-                            <Grid Padding="4,6,4,6" Height="48">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="34" />
-                                    <ColumnDefinition Width="4*" />
-                                    <ColumnDefinition Width="110" />
-                                    <ColumnDefinition Width="150" />
-                                    <ColumnDefinition Width="130" />
-                                    <ColumnDefinition Width="180" />
-                                </Grid.ColumnDefinitions>
+                            <Border
+                                Background="#262626"
+                                BorderBrush="#383838"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="12,8,12,8"
+                                DoubleTapped="OnRowDoubleTapped">
+                                <Border.ContextFlyout>
+                                    <MenuFlyout>
+                                        <MenuFlyoutItem Text="Avvia / Riprendi" Icon="Play" Click="OnResumeTaskClick" />
+                                        <MenuFlyoutItem Text="Pausa" Icon="Pause" Click="OnPauseTaskClick" />
+                                        <MenuFlyoutSeparator />
+                                        <MenuFlyoutItem Text="Mostra nella cartella" Icon="Folder" Click="OnOpenFolderClick" />
+                                        <MenuFlyoutItem Text="Apri file" Icon="OpenFile" Click="OnOpenFileClick" />
+                                        <MenuFlyoutItem Text="Copia URL sorgente" Icon="Copy" Click="OnCopyUrlClick" />
+                                        <MenuFlyoutSeparator />
+                                        <MenuFlyoutItem Text="Rimuovi dalla lista" Icon="Delete" Click="OnRemoveFromListClick" />
+                                        <MenuFlyoutItem Text="Elimina file da disco" Icon="Cancel" Click="OnDeleteFromDiskClick" />
+                                    </MenuFlyout>
+                                </Border.ContextFlyout>
+                                <Grid VerticalAlignment="Center">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="40" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="110" />
+                                        <ColumnDefinition Width="120" />
+                                        <ColumnDefinition Width="120" />
+                                        <ColumnDefinition Width="140" />
+                                    </Grid.ColumnDefinitions>
 
-                                <!-- Status Glyph Icon -->
-                                <FontIcon Grid.Column="0" Glyph="{x:Bind StatusIconGlyph, Mode=OneWay}" FontSize="14" HorizontalAlignment="Left" VerticalAlignment="Center" />
+                                    <!-- Status Glyph Icon -->
+                                    <FontIcon Grid.Column="0" Glyph="{x:Bind StatusIconGlyph, Mode=OneWay}" FontSize="16" Foreground="{x:Bind StatusColor, Mode=OneWay}" HorizontalAlignment="Center" VerticalAlignment="Center" />
 
-                                <!-- File Name & Source URL -->
-                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2" Padding="0,0,10,0">
-                                    <TextBlock Text="{x:Bind Filename, Mode=OneWay}" FontWeight="Medium" FontSize="12" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Text="{x:Bind Url, Mode=OneWay}" FontSize="10" Foreground="#6B7280" TextTrimming="CharacterEllipsis" />
-                                </StackPanel>
+                                    <!-- File Name & Source URL -->
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2" Padding="4,0,10,0">
+                                        <TextBlock Text="{x:Bind Filename, Mode=OneWay}" FontWeight="SemiBold" FontSize="12" Foreground="#FFFFFF" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{x:Bind Url, Mode=OneWay}" FontSize="10" Foreground="#888888" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
 
-                                <!-- Category Badge -->
-                                <Border Grid.Column="2" Background="#1E293B" CornerRadius="4" Padding="6,2,6,2" HorizontalAlignment="Left" VerticalAlignment="Center">
-                                    <TextBlock Text="{x:Bind Category, Mode=OneWay}" FontSize="10" Foreground="#94A3B8" />
-                                </Border>
+                                    <!-- Category Badge with Custom Opacity and Color -->
+                                    <Border Grid.Column="2" Background="{x:Bind CategoryBackground, Mode=OneWay}" CornerRadius="10" Padding="8,3,8,3" HorizontalAlignment="Left" VerticalAlignment="Center">
+                                        <TextBlock Text="{x:Bind Category, Mode=OneWay}" FontSize="10" FontWeight="SemiBold" Foreground="#FFFFFF" />
+                                    </Border>
 
-                                <!-- Downloaded / Total Size -->
-                                <TextBlock Grid.Column="3" Text="{x:Bind DownloadedFormatted, Mode=OneWay}" FontSize="11" Foreground="#D1D5DB" VerticalAlignment="Center" />
+                                    <!-- Downloaded / Total Size -->
+                                    <TextBlock Grid.Column="3" Text="{x:Bind DownloadedFormatted, Mode=OneWay}" FontSize="11" Foreground="#CCCCCC" VerticalAlignment="Center" />
 
-                                <!-- Live Speed & Status Description -->
-                                <StackPanel Grid.Column="4" VerticalAlignment="Center" Spacing="2">
-                                    <TextBlock Text="{x:Bind SpeedFormatted, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" Foreground="#60A5FA" />
-                                    <TextBlock Text="{x:Bind StatusDisplay, Mode=OneWay}" FontSize="10" Foreground="#9CA3AF" />
-                                </StackPanel>
+                                    <!-- Live Speed & Status Description -->
+                                    <StackPanel Grid.Column="4" VerticalAlignment="Center" Spacing="2">
+                                        <TextBlock Text="{x:Bind SpeedFormatted, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" Foreground="{x:Bind StatusColor, Mode=OneWay}" />
+                                        <TextBlock Text="{x:Bind StatusDisplay, Mode=OneWay}" FontSize="10" Foreground="#AAAAAA" />
+                                    </StackPanel>
 
-                                <!-- Progress Bar & ETA -->
-                                <StackPanel Grid.Column="5" VerticalAlignment="Center" Spacing="3">
-                                    <ProgressBar Value="{x:Bind Progress, Mode=OneWay}" Minimum="0" Maximum="100" Height="4" />
-                                    <Grid>
-                                        <TextBlock Text="{x:Bind ProgressPercentageFormatted, Mode=OneWay}" FontSize="10" Foreground="#9CA3AF" HorizontalAlignment="Left" />
-                                        <TextBlock Text="{x:Bind EtaFormatted, Mode=OneWay}" FontSize="10" Foreground="#9CA3AF" HorizontalAlignment="Right" />
-                                    </Grid>
-                                </StackPanel>
-                            </Grid>
+                                    <!-- Progress Bar & % / ETA -->
+                                    <StackPanel Grid.Column="5" VerticalAlignment="Center" Spacing="3">
+                                        <ProgressBar Value="{x:Bind Progress, Mode=OneWay}" Minimum="0" Maximum="100" Height="4" Foreground="{x:Bind StatusColor, Mode=OneWay}" Background="#333333" />
+                                        <Grid>
+                                            <TextBlock Text="{x:Bind ProgressPercentageFormatted, Mode=OneWay}" FontSize="10" FontWeight="SemiBold" Foreground="#FFFFFF" HorizontalAlignment="Left" />
+                                            <TextBlock Text="{x:Bind EtaFormatted, Mode=OneWay}" FontSize="10" Foreground="#888888" HorizontalAlignment="Right" />
+                                        </Grid>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>

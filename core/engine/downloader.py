@@ -138,6 +138,15 @@ class DownloadEngine:
                     user_agent=self.user_agent,
                     custom_headers=self.custom_headers,
                 )
+                if self.info and self.info.url and self.info.url != self.url:
+                    logger.info("Resource redirected: %s -> %s", self.url, self.info.url)
+                    self.url = self.info.url
+                    self.host = HostCoordinator.extract_host(self.url)
+                    if self.task_id and self.state_store:
+                        try:
+                            self.state_store.update_task_url(self.task_id, self.url)
+                        except Exception as exc:
+                            logger.debug("Could not update task url in state store: %s", exc)
 
         filepath = self.target_filepath
         assert filepath is not None

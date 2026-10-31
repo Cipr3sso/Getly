@@ -23,6 +23,16 @@ public partial class MainViewModel : ObservableObject
 
     public ObservableCollection<TaskItemViewModel> Tasks { get; } = [];
     public ObservableCollection<TaskItemViewModel> FilteredTasks { get; } = [];
+    public IpcClient IpcClient => _ipcClient;
+
+    [ObservableProperty]
+    private string _defaultDownloadDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "Getly");
+
+    [ObservableProperty]
+    private int _maxConcurrentConnections = 8;
+
+    [ObservableProperty]
+    private long _globalSpeedLimitBps = 0;
 
     [ObservableProperty]
     private TaskItemViewModel? _selectedTask;
@@ -285,6 +295,29 @@ public partial class MainViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusMessage = $"Errore eliminazione: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private async Task DeleteTaskWithFilesAsync(TaskItemViewModel? task)
+    {
+        var target = task ?? SelectedTask;
+        if (target is null) return;
+        try
+        {
+            await _ipcClient.DeleteTaskAsync(target.TaskId, deleteFiles: true);
+            RunOnUI(() =>
+            {
+                _taskIndex.Remove(target.TaskId);
+                Tasks.Remove(target);
+                FilteredTasks.Remove(target);
+                if (SelectedTask == target) SelectedTask = null;
+            });
+            StatusMessage = $"Download e file rimossi: {target.Filename}";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Errore eliminazione file: {ex.Message}";
         }
     }
 

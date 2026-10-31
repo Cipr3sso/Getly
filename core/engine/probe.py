@@ -128,6 +128,7 @@ class ResourceProbe:
         Gracefully falls back to GET Range if HEAD is rejected (e.g. 403 Forbidden or 405).
         Strictly propagates connection and timeout errors to prevent 0-byte fallbacks.
         """
+        resolved_url = url
         etag = None
         last_modified = None
         content_type = None
@@ -147,6 +148,7 @@ class ResourceProbe:
         )
         try:
             async with session.head(url, headers=head_headers, allow_redirects=True) as resp:
+                resolved_url = str(resp.url)
                 if resp.status < 400:
                     etag = resp.headers.get("ETag")
                     last_modified = resp.headers.get("Last-Modified")
@@ -168,6 +170,10 @@ class ResourceProbe:
                         parsed_name = cls._parse_content_disposition(cd)
                         if parsed_name:
                             filename = parsed_name
+                    elif resolved_url != url:
+                        alt_name = cls._extract_filename_from_url(resolved_url)
+                        if alt_name and alt_name != "downloaded_file":
+                            filename = alt_name
                 else:
                     head_failed = True
                     logger.debug(
@@ -200,14 +206,15 @@ class ResourceProbe:
         if head_failed or not supports_ranges or total_size <= 0:
             try:
                 get_headers = get_browser_headers(
-                    url,
+                    resolved_url,
                     referer=referer,
                     cookies=cookies,
                     user_agent=user_agent,
                     custom_headers=custom_headers,
                 )
                 get_headers["Range"] = "bytes=0-0"
-                async with session.get(url, headers=get_headers, allow_redirects=True) as resp:
+                async with session.get(resolved_url, headers=get_headers, allow_redirects=True) as resp:
+                    resolved_url = str(resp.url)
                     if resp.status == 206:
                         supports_ranges = True
                         content_range = resp.headers.get("Content-Range", "")
@@ -226,6 +233,10 @@ class ResourceProbe:
                             parsed_name = cls._parse_content_disposition(cd)
                             if parsed_name:
                                 filename = parsed_name
+                        elif resolved_url != url:
+                            alt_name = cls._extract_filename_from_url(resolved_url)
+                            if alt_name and alt_name != "downloaded_file":
+                                filename = alt_name
                     elif resp.status == 200:
                         # Server returned entire content: ranges NOT supported
                         supports_ranges = False
@@ -241,20 +252,26 @@ class ResourceProbe:
                             parsed_name = cls._parse_content_disposition(cd)
                             if parsed_name:
                                 filename = parsed_name
-                    elif resp.status == 403:
+                        elif resolved_url != url:
+                            alt_name = cls._extract_filename_from_url(resolved_url)
+                            if alt_name and alt_name != "downloaded_file":
+                                filename = alt_name
+                    elif resp.status in (403, 405, 416):
                         logger.debug(
-                            "GET Range request returned 403 Forbidden for %s. Attempting fallback GET without Range header.",
-                            url,
+                            "GET Range request returned %d for %s. Attempting fallback GET without Range header.",
+                            resp.status,
+                            resolved_url,
                         )
                         plain_headers = get_browser_headers(
-                            url,
+                            resolved_url,
                             referer=referer,
                             cookies=cookies,
                             user_agent=user_agent,
                             custom_headers=custom_headers,
                         )
                         plain_headers.pop("Range", None)
-                        async with session.get(url, headers=plain_headers, allow_redirects=True) as plain_resp:
+                        async with session.get(resolved_url, headers=plain_headers, allow_redirects=True) as plain_resp:
+                            resolved_url = str(plain_resp.url)
                             if plain_resp.status == 200:
                                 supports_ranges = False
                                 cl = plain_resp.headers.get("Content-Length")
@@ -269,6 +286,10 @@ class ResourceProbe:
                                     parsed_name = cls._parse_content_disposition(cd)
                                     if parsed_name:
                                         filename = parsed_name
+                                elif resolved_url != url:
+                                    alt_name = cls._extract_filename_from_url(resolved_url)
+                                    if alt_name and alt_name != "downloaded_file":
+                                        filename = alt_name
                             else:
                                 error_msg = f"Probe failed: server returned HTTP {plain_resp.status} for {url}"
                                 logger.error(error_msg)
@@ -303,15 +324,16 @@ class ResourceProbe:
             raise ProbeError(f"Unable to discover resource metadata or size for {url}")
 
         logger.info(
-            "Probed %s: size=%d bytes, ranges=%s, filename='%s'",
+            "Probed %s: size=%d bytes, ranges=%s, filename='%s'%s",
             url,
             total_size,
             supports_ranges,
             filename,
+            f" (redirected to {resolved_url})" if resolved_url != url else "",
         )
 
         return RemoteResourceInfo(
-            url=url,
+            url=resolved_url,
             total_size=total_size,
             supports_ranges=supports_ranges,
             etag=etag,

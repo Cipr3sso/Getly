@@ -12,6 +12,14 @@ from .socket_binder import SocketBinder
 logger = logging.getLogger(__name__)
 
 
+DEFAULT_SESSION_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Accept": "*/*",
+    "Accept-Encoding": "identity",
+    "Connection": "keep-alive",
+}
+
+
 class MultiInterfaceSessionPool:
     """
     Manages a pool of aiohttp.ClientSession instances, each bound to a specific
@@ -124,7 +132,11 @@ class MultiInterfaceSessionPool:
                     limit_per_host=self._max_connections_per_host,
                     limit=self._total_limit,
                 )
-                session = aiohttp.ClientSession(connector=connector, timeout=self._timeout)
+                session = aiohttp.ClientSession(
+                    connector=connector,
+                    timeout=self._timeout,
+                    headers=DEFAULT_SESSION_HEADERS,
+                )
                 default_adapter = NetworkAdapter(
                     name="default",
                     friendly_name="Default System Interface",
@@ -150,6 +162,7 @@ class MultiInterfaceSessionPool:
                     session = aiohttp.ClientSession(
                         connector=connector,
                         timeout=self._timeout,
+                        headers=DEFAULT_SESSION_HEADERS,
                     )
                     self._sessions[ad.name] = session
                     self._session_to_adapter[id(session)] = ad

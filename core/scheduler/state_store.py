@@ -198,6 +198,13 @@ class StateStore:
             """, (status.value, error, task_id))
             conn.commit()
 
+    def update_task_url(self, task_id: str, new_url: str) -> None:
+        with self._get_connection() as conn:
+            conn.execute("""
+            UPDATE tasks SET url = ? WHERE task_id = ?;
+            """, (new_url, task_id))
+            conn.commit()
+
     def save_chunks(self, task_id: str, chunks: List[Chunk]) -> None:
         with self._get_connection() as conn:
             conn.executemany("""

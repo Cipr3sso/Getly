@@ -157,7 +157,9 @@ class ChunkWorker:
             try:
                 await self.host_coordinator.wait_if_blocked(self.host)
                 async with self.host_coordinator.connection_slot(self.host):
-                    async with self.session.get(self.url, headers=headers) as resp:
+                    async with self.session.get(self.url, headers=headers, allow_redirects=True) as resp:
+                        if str(resp.url) != self.url:
+                            self.url = str(resp.url)
                         # 1. Handle HTTP 429 Too Many Requests
                         if resp.status == 429:
                             delay = self.parse_retry_after(resp.headers.get("Retry-After"))

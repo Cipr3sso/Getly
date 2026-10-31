@@ -123,22 +123,22 @@ public partial class TaskItemViewModel : ObservableObject
         {
             case "DOWNLOADING":
                 StatusDisplay = IsTorrent ? $"Scaricamento (P2P)" : "In download";
-                StatusColor = "#3B82F6"; // Fluent Blue
+                StatusColor = "#0078D4"; // Fluent Blue
                 StatusIconGlyph = "\uE896"; // Download
                 break;
             case "PAUSED":
                 StatusDisplay = "In pausa";
-                StatusColor = "#F59E0B"; // Amber
+                StatusColor = "#D83B01"; // Amber / Orange
                 StatusIconGlyph = "\uE769"; // Pause
                 break;
             case "COMPLETED":
                 StatusDisplay = "Completato";
-                StatusColor = "#10B981"; // Emerald Green
+                StatusColor = "#107C41"; // Emerald Green
                 StatusIconGlyph = "\uE73E"; // Checkmark
                 break;
             case "FAILED":
                 StatusDisplay = "Errore";
-                StatusColor = "#EF4444"; // Red
+                StatusColor = "#E81123"; // Red
                 StatusIconGlyph = "\uEB90"; // Error badge
                 break;
             case "CANCELLED":
@@ -148,9 +148,26 @@ public partial class TaskItemViewModel : ObservableObject
                 break;
             default:
                 StatusDisplay = "In attesa";
-                StatusColor = "#60A5FA";
+                StatusColor = "#60CDFF";
                 StatusIconGlyph = "\uE823"; // Hourglass / Sync
                 break;
+        }
+        OnPropertyChanged(nameof(CategoryBackground));
+    }
+
+    public string CategoryBackground
+    {
+        get
+        {
+            return Category.ToLowerInvariant() switch
+            {
+                "video" or "film" => "#0078D4",
+                "compressi" or "archivio" or "zip" or "rar" or "7z" => "#D83B01",
+                "documenti" or "pdf" or "ebook" or "doc" => "#C42B1C",
+                "audio" or "musica" or "mp3" => "#8764B8",
+                "software" or "programmi" or "iso" or "exe" => "#008272",
+                _ => "#475569"
+            };
         }
     }
 
