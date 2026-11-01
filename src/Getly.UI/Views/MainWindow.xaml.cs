@@ -102,8 +102,10 @@ public sealed partial class MainWindow : Window
 
         // 1. Integrated Dark Titlebar (Full Mica / Fluent TitleBar)
         ExtendsContentIntoTitleBar = true;
+        RootGrid.RequestedTheme = ElementTheme.Dark;
+        UpdateThemeIcon(ElementTheme.Dark);
         UpdateTitleBarColors(ElementTheme.Dark);
-        SetTitleBar(AppTitleBar);
+        SetTitleBar(TitleDragArea);
 
         // 2. Intercept Win32 WndProc to enforce physical unpassable min dimensions
         _wndProcDelegate = HookWndProc;
@@ -133,18 +135,20 @@ public sealed partial class MainWindow : Window
 
     private void ThemeToggleButton_Click(object sender, RoutedEventArgs e)
     {
-        var currentTheme = RootGrid.ActualTheme;
-        var newTheme = currentTheme == ElementTheme.Dark ? ElementTheme.Light : ElementTheme.Dark;
-        RootGrid.RequestedTheme = newTheme;
-        UpdateThemeIcon(newTheme);
-        UpdateTitleBarColors(newTheme);
+        if (this.Content is FrameworkElement root)
+        {
+            var newTheme = root.ActualTheme == ElementTheme.Dark ? ElementTheme.Light : ElementTheme.Dark;
+            root.RequestedTheme = newTheme;
+            UpdateThemeIcon(newTheme);
+            UpdateTitleBarColors(newTheme);
+        }
     }
 
     private void UpdateThemeIcon(ElementTheme theme)
     {
         // Sole (E706) in Dark mode, Luna (E708) in Light mode
-        ThemeToggleIcon.Glyph = theme == ElementTheme.Light ? "\uE708" : "\uE706";
-        ToolTipService.SetToolTip(ThemeToggleButton, theme == ElementTheme.Light ? "Passa a tema Scuro" : "Passa a tema Chiaro");
+        ThemeToggleIcon.Glyph = theme == ElementTheme.Dark ? "\uE706" : "\uE708";
+        ToolTipService.SetToolTip(ThemeToggleButton, theme == ElementTheme.Dark ? "Passa a tema Chiaro" : "Passa a tema Scuro");
     }
 
     private void UpdateTitleBarColors(ElementTheme theme)
@@ -152,7 +156,7 @@ public sealed partial class MainWindow : Window
         if (AppWindowTitleBar.IsCustomizationSupported())
         {
             var titleBar = AppWindow.TitleBar;
-            bool isDark = theme != ElementTheme.Light;
+            bool isDark = theme == ElementTheme.Dark;
             var fg = isDark ? Microsoft.UI.Colors.White : Microsoft.UI.Colors.Black;
 
             titleBar.ButtonBackgroundColor = Microsoft.UI.Colors.Transparent;
@@ -161,10 +165,14 @@ public sealed partial class MainWindow : Window
             titleBar.ButtonHoverForegroundColor = fg;
             titleBar.ButtonHoverBackgroundColor = isDark
                 ? Windows.UI.Color.FromArgb(30, 255, 255, 255)
-                : Windows.UI.Color.FromArgb(30, 0, 0, 0);
+                : Windows.UI.Color.FromArgb(20, 0, 0, 0);
             titleBar.ButtonPressedBackgroundColor = isDark
                 ? Windows.UI.Color.FromArgb(50, 255, 255, 255)
-                : Windows.UI.Color.FromArgb(50, 0, 0, 0);
+                : Windows.UI.Color.FromArgb(40, 0, 0, 0);
+            titleBar.ButtonPressedForegroundColor = fg;
+            titleBar.ButtonInactiveForegroundColor = isDark
+                ? Windows.UI.Color.FromArgb(128, 255, 255, 255)
+                : Windows.UI.Color.FromArgb(128, 0, 0, 0);
         }
     }
 

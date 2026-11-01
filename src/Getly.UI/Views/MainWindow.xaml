@@ -27,14 +27,15 @@
             x:Name="AppTitleBar"
             Grid.Row="0"
             Height="44"
-            Background="Transparent"
-            Padding="16,0,140,0">
+            Background="Transparent">
             <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="140" />
             </Grid.ColumnDefinitions>
 
-            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
+            <StackPanel Grid.Column="0" Margin="16,0,0,0" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
                 <FontIcon Glyph="&#xE896;" FontSize="14" Foreground="#3B82F6" />
                 <TextBlock Text="Getly" FontWeight="SemiBold" FontSize="12" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center" />
                 <Border Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="4" Padding="6,2,6,2" VerticalAlignment="Center">
@@ -42,18 +43,23 @@
                 </Border>
             </StackPanel>
 
+            <!-- Dedicated Window Dragging Area -->
+            <Border Grid.Column="1" Background="Transparent" x:Name="TitleDragArea" />
+
             <!-- Theme Toggle Button (Light / Dark Mode Switcher) -->
             <Button
-                Grid.Column="1"
+                Grid.Column="2"
                 x:Name="ThemeToggleButton"
                 Width="36"
                 Height="32"
                 CornerRadius="4"
                 Padding="0"
+                Margin="0,0,8,0"
                 Background="Transparent"
                 BorderThickness="0"
+                VerticalAlignment="Center"
                 Click="ThemeToggleButton_Click"
-                ToolTipService.ToolTip="Cambia tema (Chiaro / Scuro)">
+                ToolTipService.ToolTip="Cambia tema chiaro/scuro">
                 <FontIcon x:Name="ThemeToggleIcon" Glyph="&#xE706;" FontSize="14" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
             </Button>
         </Grid>
@@ -111,7 +117,7 @@
                         <!-- Command Bar -->
                         <RowDefinition Height="Auto" />
                         <!-- List Header -->
-                        <RowDefinition Height="34" />
+                        <RowDefinition Height="Auto" />
                         <!-- Task List View -->
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
@@ -148,7 +154,7 @@
                     </Grid>
 
                     <!-- Table Header Row -->
-                    <Border Grid.Row="1" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="12,0,12,0">
+                    <Border Grid.Row="1" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="12,0,12,0" Height="40">
                         <Grid VerticalAlignment="Center">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="52" />
@@ -171,11 +177,11 @@
                                 Click="SelectAllCheckBox_Click"
                                 ToolTipService.ToolTip="Seleziona / Deseleziona tutti" />
 
-                            <TextBlock Grid.Column="1" Text="Nome File / URL" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Padding="4,0,0,0" />
-                            <TextBlock Grid.Column="2" Text="Categoria" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            <TextBlock Grid.Column="3" Text="Dimensioni" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            <TextBlock Grid.Column="4" Text="Velocità / Stato" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            <TextBlock Grid.Column="5" Text="Progresso / ETA" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock Grid.Column="1" Text="Nome File / URL" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" Margin="0" Padding="4,0,0,0" />
+                            <TextBlock Grid.Column="2" Text="Categoria" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" Margin="0" />
+                            <TextBlock Grid.Column="3" Text="Dimensioni" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" Margin="0" />
+                            <TextBlock Grid.Column="4" Text="Velocità / Stato" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" Margin="0" />
+                            <TextBlock Grid.Column="5" Text="Progresso / ETA" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" Margin="0" />
                         </Grid>
                     </Border>
 
