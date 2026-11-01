@@ -327,6 +327,11 @@ public sealed class IpcClient : IAsyncDisposable, IDisposable
         await InvokeAsync("torrent.set_priority", new { task_id = taskId, file_index = fileIndex, priority }, cancellationToken: cancellationToken);
     }
 
+    public async Task ToggleAdapterAsync(string adapterName, bool enabled, CancellationToken cancellationToken = default)
+    {
+        await InvokeAsync("system.toggle_adapter", new { adapter_name = adapterName, enabled }, cancellationToken: cancellationToken);
+    }
+
     #endregion
 
     private bool _disposed;

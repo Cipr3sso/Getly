@@ -109,6 +109,37 @@ class MultiInterfaceSessionPool:
     def is_initialized(self) -> bool:
         return self._is_initialized
 
+    def create_session(self, adapter: Optional[NetworkAdapter] = None) -> aiohttp.ClientSession:
+        """
+        Creates an aiohttp.ClientSession strictly configured with family=socket.AF_INET
+        to force IPv4 resolution and prevent unroutable IPv6 queries on dual-stack CDN hosts (e.g. Cloudflare / testfile.org).
+        """
+        if adapter and adapter.ip and adapter.name != "default":
+            socket_factory = SocketBinder.create_socket_factory(adapter)
+            connector = aiohttp.TCPConnector(
+                family=socket.AF_INET,
+                local_addr=(adapter.ip, 0),
+                socket_factory=socket_factory,
+                force_close=False,
+                keepalive_timeout=60.0,
+                limit_per_host=self._max_connections_per_host,
+                limit=self._total_limit,
+            )
+        else:
+            connector = aiohttp.TCPConnector(
+                family=socket.AF_INET,
+                force_close=False,
+                keepalive_timeout=60.0,
+                limit_per_host=self._max_connections_per_host,
+                limit=self._total_limit,
+            )
+
+        return aiohttp.ClientSession(
+            connector=connector,
+            timeout=self._timeout,
+            headers=DEFAULT_SESSION_HEADERS,
+        )
+
     async def initialize(self) -> None:
         """Discovers adapters and initializes ClientSession instances."""
         async with self._lock:
@@ -125,23 +156,12 @@ class MultiInterfaceSessionPool:
                 logger.warning(
                     "No dedicated active internet adapters detected. Creating default un-bound session."
                 )
-                connector = aiohttp.TCPConnector(
-                    family=socket.AF_INET,
-                    force_close=False,
-                    keepalive_timeout=60.0,
-                    limit_per_host=self._max_connections_per_host,
-                    limit=self._total_limit,
-                )
-                session = aiohttp.ClientSession(
-                    connector=connector,
-                    timeout=self._timeout,
-                    headers=DEFAULT_SESSION_HEADERS,
-                )
                 default_adapter = NetworkAdapter(
                     name="default",
                     friendly_name="Default System Interface",
                     ip="0.0.0.0",
                 )
+                session = self.create_session(default_adapter)
                 self._adapters = [default_adapter]
                 self._sessions[default_adapter.name] = session
                 self._session_to_adapter[id(session)] = default_adapter
@@ -149,21 +169,7 @@ class MultiInterfaceSessionPool:
                 logger.info("Initializing multi-interface pool with %d adapters:", len(self._adapters))
                 for ad in self._adapters:
                     logger.info("  * Binding adapter '%s' [%s] (IfIndex=%s)", ad.name, ad.ip, ad.if_index)
-                    socket_factory = SocketBinder.create_socket_factory(ad)
-                    connector = aiohttp.TCPConnector(
-                        family=socket.AF_INET,
-                        local_addr=(ad.ip, 0),
-                        socket_factory=socket_factory,
-                        force_close=False,
-                        keepalive_timeout=60.0,
-                        limit_per_host=self._max_connections_per_host,
-                        limit=self._total_limit,
-                    )
-                    session = aiohttp.ClientSession(
-                        connector=connector,
-                        timeout=self._timeout,
-                        headers=DEFAULT_SESSION_HEADERS,
-                    )
+                    session = self.create_session(ad)
                     self._sessions[ad.name] = session
                     self._session_to_adapter[id(session)] = ad
 

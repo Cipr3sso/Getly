@@ -70,6 +70,9 @@ public partial class TaskItemViewModel : ObservableObject
     private bool _isTorrent;
 
     [ObservableProperty]
+    private bool _isSelected;
+
+    [ObservableProperty]
     private string? _errorMessage;
 
     [ObservableProperty]

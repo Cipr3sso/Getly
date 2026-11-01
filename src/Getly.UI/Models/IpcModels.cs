@@ -122,6 +122,9 @@ public sealed record NetworkInterfaceDto
 
     [JsonPropertyName("is_vpn")]
     public bool IsVpn { get; init; }
+
+    [JsonPropertyName("is_enabled")]
+    public bool IsEnabled { get; init; } = true;
 }
 
 public sealed record SystemStatsDto

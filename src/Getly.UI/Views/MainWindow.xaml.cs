@@ -1,5 +1,7 @@
 using System;
+using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Getly.UI.ViewModels;
@@ -100,16 +102,7 @@ public sealed partial class MainWindow : Window
 
         // 1. Integrated Dark Titlebar (Full Mica / Fluent TitleBar)
         ExtendsContentIntoTitleBar = true;
-        if (AppWindowTitleBar.IsCustomizationSupported())
-        {
-            var titleBar = AppWindow.TitleBar;
-            titleBar.ButtonBackgroundColor = Microsoft.UI.Colors.Transparent;
-            titleBar.ButtonInactiveBackgroundColor = Microsoft.UI.Colors.Transparent;
-            titleBar.ButtonForegroundColor = Microsoft.UI.Colors.White;
-            titleBar.ButtonHoverForegroundColor = Microsoft.UI.Colors.White;
-            titleBar.ButtonHoverBackgroundColor = Windows.UI.Color.FromArgb(30, 255, 255, 255);
-            titleBar.ButtonPressedBackgroundColor = Windows.UI.Color.FromArgb(50, 255, 255, 255);
-        }
+        UpdateTitleBarColors(ElementTheme.Dark);
         SetTitleBar(AppTitleBar);
 
         // 2. Intercept Win32 WndProc to enforce physical unpassable min dimensions
@@ -136,37 +129,233 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    #region Theme Switcher (Light / Dark Mode)
+
+    private void ThemeToggleButton_Click(object sender, RoutedEventArgs e)
+    {
+        var currentTheme = RootGrid.ActualTheme;
+        var newTheme = currentTheme == ElementTheme.Dark ? ElementTheme.Light : ElementTheme.Dark;
+        RootGrid.RequestedTheme = newTheme;
+        UpdateThemeIcon(newTheme);
+        UpdateTitleBarColors(newTheme);
+    }
+
+    private void UpdateThemeIcon(ElementTheme theme)
+    {
+        // Sole (E706) in Dark mode, Luna (E708) in Light mode
+        ThemeToggleIcon.Glyph = theme == ElementTheme.Light ? "\uE708" : "\uE706";
+        ToolTipService.SetToolTip(ThemeToggleButton, theme == ElementTheme.Light ? "Passa a tema Scuro" : "Passa a tema Chiaro");
+    }
+
+    private void UpdateTitleBarColors(ElementTheme theme)
+    {
+        if (AppWindowTitleBar.IsCustomizationSupported())
+        {
+            var titleBar = AppWindow.TitleBar;
+            bool isDark = theme != ElementTheme.Light;
+            var fg = isDark ? Microsoft.UI.Colors.White : Microsoft.UI.Colors.Black;
+
+            titleBar.ButtonBackgroundColor = Microsoft.UI.Colors.Transparent;
+            titleBar.ButtonInactiveBackgroundColor = Microsoft.UI.Colors.Transparent;
+            titleBar.ButtonForegroundColor = fg;
+            titleBar.ButtonHoverForegroundColor = fg;
+            titleBar.ButtonHoverBackgroundColor = isDark
+                ? Windows.UI.Color.FromArgb(30, 255, 255, 255)
+                : Windows.UI.Color.FromArgb(30, 0, 0, 0);
+            titleBar.ButtonPressedBackgroundColor = isDark
+                ? Windows.UI.Color.FromArgb(50, 255, 255, 255)
+                : Windows.UI.Color.FromArgb(50, 0, 0, 0);
+        }
+    }
+
+    #endregion
+
+    #region Navigation & View Switching
+
     private void NavView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
         if (args.IsSettingsSelected)
         {
-            // Settings dialog is handled via NavView_ItemInvoked
+            SwitchToView("SETTINGS");
             return;
         }
 
         if (args.SelectedItemContainer is NavigationViewItem item && item.Tag is string tag)
         {
-            ViewModel.SelectedNavCategory = tag;
+            if (tag == "Network")
+            {
+                SwitchToView("NETWORK");
+            }
+            else
+            {
+                SwitchToView("DOWNLOADS");
+                ViewModel.SelectedNavCategory = tag;
+            }
         }
     }
 
-    private async void NavView_ItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
+    private void NavView_ItemInvoked(NavigationView sender, NavigationViewItemInvokedEventArgs args)
     {
         if (args.IsSettingsInvoked)
         {
-            var previousItem = NavView.SelectedItem;
-            try
-            {
-                await ShowSettingsDialogAsync();
-            }
-            finally
-            {
-                // Ripristina l'elemento selezionato prima dell'apertura del dialog
-                NavView.SelectedItem = previousItem ?? (NavView.MenuItems.Count > 0 ? NavView.MenuItems[0] : null);
-            }
-            return;
+            SwitchToView("SETTINGS");
         }
     }
+
+    private void SwitchToView(string viewKey)
+    {
+        DownloadsView.Visibility = viewKey == "DOWNLOADS" ? Visibility.Visible : Visibility.Collapsed;
+        NetworkInterfacesView.Visibility = viewKey == "NETWORK" ? Visibility.Visible : Visibility.Collapsed;
+        SettingsView.Visibility = viewKey == "SETTINGS" ? Visibility.Visible : Visibility.Collapsed;
+
+        if (viewKey == "SETTINGS")
+        {
+            SpeedLimitNumberBox.Value = ViewModel.GlobalSpeedLimitBps > 0 ? ViewModel.GlobalSpeedLimitBps / 1024 : 0;
+        }
+    }
+
+    #endregion
+
+    #region Batch Selection & Multi-Delete
+
+    private void SelectAllCheckBox_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is CheckBox cb)
+        {
+            ViewModel.SelectAllTasks(cb.IsChecked == true);
+        }
+    }
+
+    private async void OnDeleteButtonClick(object sender, RoutedEventArgs e)
+    {
+        var selectedTasks = ViewModel.Tasks.Where(t => t.IsSelected).ToList();
+        if (selectedTasks.Count == 0 && ViewModel.SelectedTask is not null)
+        {
+            selectedTasks.Add(ViewModel.SelectedTask);
+        }
+
+        if (selectedTasks.Count == 0)
+        {
+            ViewModel.StatusMessage = "Nessun download selezionato da eliminare.";
+            return;
+        }
+
+        if (_isDialogOpen) return;
+        _isDialogOpen = true;
+
+        try
+        {
+            var deleteDiskFilesBox = new CheckBox
+            {
+                Content = "Rimuovi anche i file scaricati dal disco fisso",
+                IsChecked = false,
+                Margin = new Thickness(0, 8, 0, 0)
+            };
+
+            string title = selectedTasks.Count == 1
+                ? $"Eliminare il download '{selectedTasks[0].Filename}'?"
+                : $"Eliminare i {selectedTasks.Count} download selezionati?";
+
+            var dialog = new ContentDialog
+            {
+                Title = title,
+                PrimaryButtonText = "Elimina",
+                CloseButtonText = "Annulla",
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = Content.XamlRoot,
+                Content = new StackPanel
+                {
+                    Spacing = 8,
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = $"Stai per rimuovere {selectedTasks.Count} download dalla coda di Getly.",
+                            TextWrapping = TextWrapping.Wrap
+                        },
+                        deleteDiskFilesBox
+                    }
+                }
+            };
+
+            var result = await dialog.ShowAsync();
+            if (result == ContentDialogResult.Primary)
+            {
+                bool deleteFiles = deleteDiskFilesBox.IsChecked == true;
+                await ViewModel.DeleteTasksAsync(selectedTasks, deleteFiles);
+                if (SelectAllCheckBox is not null)
+                {
+                    SelectAllCheckBox.IsChecked = false;
+                }
+            }
+        }
+        finally
+        {
+            _isDialogOpen = false;
+        }
+    }
+
+    #endregion
+
+    #region Network Adapters Actions
+
+    private async void OnAdapterToggleSwitch_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (sender is ToggleSwitch ts && ts.DataContext is NetworkAdapterItemViewModel adapter)
+        {
+            await ViewModel.ToggleAdapterAsync(adapter);
+        }
+    }
+
+    #endregion
+
+    #region Settings Actions
+
+    private async void OnBrowseDownloadDirClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var picker = new FolderPicker();
+            var hwnd = WindowNative.GetWindowHandle(this);
+            InitializeWithWindow.Initialize(picker, hwnd);
+            picker.FileTypeFilter.Add("*");
+            var folder = await picker.PickSingleFolderAsync();
+            if (folder != null)
+            {
+                ViewModel.DefaultDownloadDir = folder.Path;
+            }
+        }
+        catch (Exception ex)
+        {
+            ViewModel.StatusMessage = $"Errore selezione cartella: {ex.Message}";
+        }
+    }
+
+    private void OnOpenDownloadDirClick(object sender, RoutedEventArgs e)
+    {
+        if (!string.IsNullOrWhiteSpace(ViewModel.DefaultDownloadDir))
+        {
+            if (!Directory.Exists(ViewModel.DefaultDownloadDir))
+            {
+                Directory.CreateDirectory(ViewModel.DefaultDownloadDir);
+            }
+            Process.Start("explorer.exe", $"\"{ViewModel.DefaultDownloadDir}\"");
+        }
+    }
+
+    private async void OnApplySettingsClick(object sender, RoutedEventArgs e)
+    {
+        if (!double.IsNaN(SpeedLimitNumberBox.Value) && SpeedLimitNumberBox.Value >= 0)
+        {
+            ViewModel.GlobalSpeedLimitBps = (long)(SpeedLimitNumberBox.Value * 1024);
+        }
+
+        await ViewModel.SaveSettingsAsync();
+    }
+
+    #endregion
+
+    #region Context Menu & Row Action Handlers
 
     private TaskItemViewModel? GetTask(object sender)
     {
@@ -176,8 +365,6 @@ public sealed partial class MainWindow : Window
         }
         return ViewModel.SelectedTask;
     }
-
-    #region Context Menu & Row Action Handlers
 
     private void OnResumeTaskClick(object sender, RoutedEventArgs e)
     {
@@ -392,170 +579,6 @@ public sealed partial class MainWindow : Window
             };
 
             await dialog.ShowAsync();
-        }
-        finally
-        {
-            _isDialogOpen = false;
-        }
-    }
-
-    private async Task ShowSettingsDialogAsync()
-    {
-        if (_isDialogOpen) return;
-        _isDialogOpen = true;
-
-        try
-        {
-            var folderTextBox = new TextBox
-            {
-                Text = ViewModel.DefaultDownloadDir,
-                HorizontalAlignment = HorizontalAlignment.Stretch
-            };
-
-            var browseBtn = new Button
-            {
-                Content = "Sfoglia...",
-                VerticalAlignment = VerticalAlignment.Center
-            };
-
-            browseBtn.Click += async (s, e) =>
-            {
-                try
-                {
-                    var picker = new FolderPicker();
-                    var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-                    WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
-                    picker.FileTypeFilter.Add("*");
-                    var folder = await picker.PickSingleFolderAsync();
-                    if (folder != null)
-                    {
-                        folderTextBox.Text = folder.Path;
-                    }
-                }
-                catch
-                {
-                    // Fallback to manual path input if picker fails
-                }
-            };
-
-            var folderRow = new Grid();
-            folderRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            folderRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            Grid.SetColumn(folderTextBox, 0);
-            Grid.SetColumn(browseBtn, 1);
-            browseBtn.Margin = new Thickness(8, 0, 0, 0);
-            folderRow.Children.Add(folderTextBox);
-            folderRow.Children.Add(browseBtn);
-
-            var connsBox = new NumberBox
-            {
-                Value = ViewModel.MaxConcurrentConnections,
-                Minimum = 1,
-                Maximum = 32,
-                SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
-                SmallChange = 1,
-                LargeChange = 4,
-                Width = 140,
-                HorizontalAlignment = HorizontalAlignment.Left
-            };
-
-            var speedLimitBox = new NumberBox
-            {
-                Value = ViewModel.GlobalSpeedLimitBps > 0 ? ViewModel.GlobalSpeedLimitBps / 1024 : 0,
-                Minimum = 0,
-                Maximum = 1000000,
-                SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline,
-                SmallChange = 50,
-                LargeChange = 500,
-                Width = 160,
-                HorizontalAlignment = HorizontalAlignment.Left
-            };
-
-            var vpnToggle = new ToggleSwitch
-            {
-                Header = "Protezione automatica NordLynx / Killswitch",
-                IsOn = ViewModel.VpnShieldActive
-            };
-
-            var content = new StackPanel
-            {
-                Spacing = 14,
-                Width = 460,
-                Children =
-                {
-                    new StackPanel
-                    {
-                        Spacing = 4,
-                        Children =
-                        {
-                            new TextBlock { Text = "Cartella predefinita per i download", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 12 },
-                            folderRow
-                        }
-                    },
-                    new StackPanel
-                    {
-                        Spacing = 4,
-                        Children =
-                        {
-                            new TextBlock { Text = "Connessioni concorrenti per file (Chunk)", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 12 },
-                            connsBox
-                        }
-                    },
-                    new StackPanel
-                    {
-                        Spacing = 4,
-                        Children =
-                        {
-                            new TextBlock { Text = "Limitatore velocità globale (KB/s, 0 = Illimitata)", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 12 },
-                            speedLimitBox
-                        }
-                    },
-                    new Border
-                    {
-                        Height = 1,
-                        Background = Application.Current.Resources["CardStrokeColorDefaultBrush"] as Microsoft.UI.Xaml.Media.Brush
-                    },
-                    vpnToggle
-                }
-            };
-
-            var dialog = new ContentDialog
-            {
-                Title = "Impostazioni Getly",
-                PrimaryButtonText = "Salva",
-                CloseButtonText = "Annulla",
-                DefaultButton = ContentDialogButton.Primary,
-                XamlRoot = Content.XamlRoot,
-                Content = new ScrollViewer
-                {
-                    MaxHeight = 440,
-                    Content = content
-                }
-            };
-
-            var result = await dialog.ShowAsync();
-            if (result == ContentDialogResult.Primary)
-            {
-                if (!string.IsNullOrWhiteSpace(folderTextBox.Text))
-                {
-                    ViewModel.DefaultDownloadDir = folderTextBox.Text.Trim();
-                }
-
-                if (!double.IsNaN(connsBox.Value) && connsBox.Value >= 1)
-                {
-                    ViewModel.MaxConcurrentConnections = (int)connsBox.Value;
-                }
-
-                if (!double.IsNaN(speedLimitBox.Value) && speedLimitBox.Value >= 0)
-                {
-                    ViewModel.GlobalSpeedLimitBps = (long)(speedLimitBox.Value * 1024);
-                    _ = ViewModel.IpcClient.SetSpeedLimitAsync(ViewModel.GlobalSpeedLimitBps);
-                }
-
-                ViewModel.VpnShieldActive = vpnToggle.IsOn;
-                ViewModel.VpnShieldStatusText = vpnToggle.IsOn ? "VPN Shield Attivo" : "VPN Shield Disabilitato";
-                ViewModel.StatusMessage = "Impostazioni salvate con successo";
-            }
         }
         finally
         {

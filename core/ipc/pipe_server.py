@@ -88,6 +88,7 @@ class NamedPipeServer:
             "torrent.set_priority": self._rpc_torrent_set_priority,
             "system.set_speed_limit": self._rpc_system_set_speed_limit,
             "system.get_stats": self._rpc_system_get_stats,
+            "system.toggle_adapter": self._rpc_system_toggle_adapter,
         }
 
     @property
@@ -361,6 +362,17 @@ class NamedPipeServer:
             logger.debug("NamedPipeServer: Could not apply limit to torrent session: %s", exc)
 
         return {"success": True, "limit_bps": limit_bps}
+
+    def _rpc_system_toggle_adapter(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        adapter_name = params.get("adapter_name")
+        enabled = bool(params.get("enabled", True))
+        if not adapter_name:
+            raise ValueError("Missing 'adapter_name' parameter")
+        if enabled:
+            success = self.session_pool.enable_adapter(adapter_name)
+        else:
+            success = self.session_pool.disable_adapter(adapter_name)
+        return {"adapter_name": adapter_name, "enabled": enabled, "success": success}
 
     def _rpc_system_get_stats(self, params: Dict[str, Any]) -> Dict[str, Any]:
         # Aggregate speeds across all tasks

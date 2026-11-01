@@ -20,9 +20,11 @@ public partial class MainViewModel : ObservableObject
     private readonly EngineSupervisor _supervisor;
     private readonly DispatcherQueue? _dispatcherQueue;
     private readonly Dictionary<string, TaskItemViewModel> _taskIndex = new();
+    private readonly Dictionary<string, NetworkAdapterItemViewModel> _adapterIndex = new();
 
     public ObservableCollection<TaskItemViewModel> Tasks { get; } = [];
     public ObservableCollection<TaskItemViewModel> FilteredTasks { get; } = [];
+    public ObservableCollection<NetworkAdapterItemViewModel> NetworkAdapters { get; } = [];
     public IpcClient IpcClient => _ipcClient;
 
     [ObservableProperty]
@@ -35,6 +37,48 @@ public partial class MainViewModel : ObservableObject
     private long _globalSpeedLimitBps = 0;
 
     [ObservableProperty]
+    private bool _autostartEnabled = IsAutostartConfigured();
+
+    partial void OnAutostartEnabledChanged(bool value)
+    {
+        SetAutostartRegistry(value);
+    }
+
+    private static bool IsAutostartConfigured()
+    {
+        try
+        {
+            if (!OperatingSystem.IsWindows()) return false;
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", false);
+            return key?.GetValue("Getly") != null;
+        }
+        catch { return false; }
+    }
+
+    private static void SetAutostartRegistry(bool enable)
+    {
+        try
+        {
+            if (!OperatingSystem.IsWindows()) return;
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", true);
+            if (key is null) return;
+            if (enable)
+            {
+                string? exe = Environment.ProcessPath;
+                if (!string.IsNullOrEmpty(exe))
+                {
+                    key.SetValue("Getly", $"\"{exe}\" --minimized");
+                }
+            }
+            else
+            {
+                key.DeleteValue("Getly", false);
+            }
+        }
+        catch { }
+    }
+
+    [ObservableProperty]
     private TaskItemViewModel? _selectedTask;
 
     [ObservableProperty]
@@ -42,6 +86,9 @@ public partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     private string _searchText = string.Empty;
+
+    [ObservableProperty]
+    private bool _hasNoTasks;
 
     [ObservableProperty]
     private string _aggregateDownloadSpeed = "0 B/s";
@@ -155,6 +202,41 @@ public partial class MainViewModel : ObservableObject
         {
             FilteredTasks.Add(item);
         }
+        HasNoTasks = FilteredTasks.Count == 0;
+    }
+
+    public void SelectAllTasks(bool isSelected)
+    {
+        foreach (var task in FilteredTasks)
+        {
+            task.IsSelected = isSelected;
+        }
+    }
+
+    public async Task DeleteTasksAsync(IEnumerable<TaskItemViewModel> tasksToDelete, bool deleteFiles)
+    {
+        int count = 0;
+        foreach (var task in tasksToDelete.ToList())
+        {
+            try
+            {
+                await _ipcClient.DeleteTaskAsync(task.TaskId, deleteFiles: deleteFiles);
+                RunOnUI(() =>
+                {
+                    _taskIndex.Remove(task.TaskId);
+                    Tasks.Remove(task);
+                    FilteredTasks.Remove(task);
+                    if (SelectedTask == task) SelectedTask = null;
+                });
+                count++;
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = $"Errore eliminazione {task.Filename}: {ex.Message}";
+            }
+        }
+        ApplyFilters();
+        StatusMessage = $"Rimossi {count} download" + (deleteFiles ? " e file da disco" : "");
     }
 
     private void HandleTelemetryTick(TelemetryTickDto tick)
@@ -187,11 +269,25 @@ public partial class MainViewModel : ObservableObject
                 ApplyFilters();
             }
 
-            // Update network adapters summary if present
+            // Update network adapters summary and collection
             if (tick.Stats.Interfaces.Count > 0)
             {
                 var up = tick.Stats.Interfaces.Where(i => i.IsUp).Select(i => i.FriendlyName ?? i.Name);
                 ActiveAdaptersSummary = string.Join(" | ", up);
+
+                foreach (var ifDto in tick.Stats.Interfaces)
+                {
+                    if (_adapterIndex.TryGetValue(ifDto.Name, out var existingAdapter))
+                    {
+                        existingAdapter.UpdateFrom(ifDto);
+                    }
+                    else
+                    {
+                        var newAdapter = new NetworkAdapterItemViewModel(ifDto);
+                        _adapterIndex[newAdapter.Name] = newAdapter;
+                        NetworkAdapters.Add(newAdapter);
+                    }
+                }
             }
         });
     }
@@ -206,6 +302,20 @@ public partial class MainViewModel : ObservableObject
             {
                 var activeNames = stats.ActiveAdapters.Select(a => a.FriendlyName ?? a.Name);
                 ActiveAdaptersSummary = string.Join(" + ", activeNames);
+
+                foreach (var ifDto in stats.ActiveAdapters)
+                {
+                    if (_adapterIndex.TryGetValue(ifDto.Name, out var existingAdapter))
+                    {
+                        existingAdapter.UpdateFrom(ifDto);
+                    }
+                    else
+                    {
+                        var newAdapter = new NetworkAdapterItemViewModel(ifDto);
+                        _adapterIndex[newAdapter.Name] = newAdapter;
+                        NetworkAdapters.Add(newAdapter);
+                    }
+                }
             }
         });
     }
@@ -350,6 +460,38 @@ public partial class MainViewModel : ObservableObject
         if (File.Exists(file))
         {
             Process.Start(new ProcessStartInfo(file) { UseShellExecute = true });
+        }
+    }
+
+    [RelayCommand]
+    public async Task ToggleAdapterAsync(NetworkAdapterItemViewModel? adapter)
+    {
+        if (adapter is null) return;
+        try
+        {
+            await _ipcClient.ToggleAdapterAsync(adapter.Name, adapter.IsEnabled);
+            StatusMessage = $"Scheda '{adapter.DisplayName}' {(adapter.IsEnabled ? "abilitata" : "esclusa")}";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Errore modifica scheda {adapter.DisplayName}: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    public async Task SaveSettingsAsync()
+    {
+        try
+        {
+            if (GlobalSpeedLimitBps >= 0)
+            {
+                await _ipcClient.SetSpeedLimitAsync(GlobalSpeedLimitBps);
+            }
+            StatusMessage = "Impostazioni applicate con successo.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Errore applicazione impostazioni: {ex.Message}";
         }
     }
 

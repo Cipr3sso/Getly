@@ -97,13 +97,16 @@ class TelemetryDispatcher:
         # Collect network interface stats
         interfaces_data = []
         for ad in getattr(self.session_pool, "all_adapters", []):
+            is_enabled = getattr(self.session_pool, "is_adapter_enabled", lambda n: True)(ad.name)
             interfaces_data.append({
                 "name": ad.name,
                 "friendly_name": ad.friendly_name,
                 "ip": ad.ip,
                 "is_up": ad.is_up,
+                "is_primary": getattr(ad, "is_primary", False),
                 "speed_mbps": ad.speed_mbps,
                 "is_vpn": getattr(ad, "is_vpn", False),
+                "is_enabled": is_enabled,
             })
 
         # Delta updates: only include tasks whose status or downloaded_bytes changed
