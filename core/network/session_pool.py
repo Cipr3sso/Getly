@@ -64,6 +64,33 @@ class MultiInterfaceSessionPool:
         """Returns all detected network adapters in the pool, enabled or disabled."""
         return list(self._adapters)
 
+    def refresh_adapters(self) -> List[NetworkAdapter]:
+        """
+        Dynamically rescans system network interfaces to detect newly connected adapters (e.g. VPN).
+        Updates internal adapters list while preserving disabled adapters state and session bindings.
+        """
+        try:
+            detected = InterfaceDetector.detect_all_adapters()
+            if detected:
+                old_by_name = {a.name: a for a in self._adapters}
+                new_adapters: List[NetworkAdapter] = []
+                for ad in detected:
+                    if ad.name in old_by_name:
+                        old_ad = old_by_name[ad.name]
+                        old_ad.ip = ad.ip
+                        old_ad.is_up = ad.is_up
+                        old_ad.speed_mbps = ad.speed_mbps
+                        old_ad.is_primary = getattr(ad, "is_primary", False)
+                        old_ad.is_vpn = getattr(ad, "is_vpn", False)
+                        new_adapters.append(old_ad)
+                    else:
+                        new_adapters.append(ad)
+                self._adapters = new_adapters
+                self._round_robin_iter = None
+        except Exception as exc:
+            logger.debug("MultiInterfaceSessionPool.refresh_adapters error: %s", exc)
+        return list(self._adapters)
+
     @property
     def active_adapters(self) -> List[NetworkAdapter]:
         """

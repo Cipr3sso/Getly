@@ -367,6 +367,11 @@ public sealed class IpcClient : IAsyncDisposable, IDisposable
         await InvokeAsync("system.toggle_adapter", new { adapter_name = adapterName, enabled }, cancellationToken: cancellationToken);
     }
 
+    public async Task RefreshNetworkAsync(CancellationToken cancellationToken = default)
+    {
+        await InvokeAsync("system.refresh_network", new { }, cancellationToken: cancellationToken);
+    }
+
     #endregion
 
     private bool _disposed;

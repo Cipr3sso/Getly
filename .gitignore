@@ -19,6 +19,7 @@ Output/
 # Project runtime data, databases, logs and temporary files
 data/
 downloads.db
+usrfile/
 *.log
 *.tmp
 *.temp

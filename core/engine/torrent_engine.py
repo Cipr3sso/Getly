@@ -663,6 +663,7 @@ class TorrentDownloadEngine:
                 files_status.append({
                     "index": i,
                     "path": path,
+                    "name": os.path.basename(path) if path else f"File {i}",
                     "size": size,
                     "downloaded": downloaded,
                     "progress": prog,

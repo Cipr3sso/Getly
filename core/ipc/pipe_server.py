@@ -50,6 +50,7 @@ def serialize_task(task: DownloadTask) -> Dict[str, Any]:
         "pieces_completed": getattr(task, "pieces_completed", 0),
         "priority": getattr(task, "priority", 4),
         "info_hash": getattr(task, "info_hash", None),
+        "files_status": getattr(task, "files_status", None) or [],
     }
 
 
@@ -91,6 +92,7 @@ class NamedPipeServer:
             "system.set_speed_limit": self._rpc_system_set_speed_limit,
             "system.get_stats": self._rpc_system_get_stats,
             "system.toggle_adapter": self._rpc_system_toggle_adapter,
+            "system.refresh_network": self._rpc_system_refresh_network,
             "system.set_settings": self._rpc_system_set_settings,
             "system.health_check": self._rpc_system_health_check,
         }
@@ -335,6 +337,12 @@ class NamedPipeServer:
     async def _rpc_system_health_check(self, params: Dict[str, Any]) -> Dict[str, Any]:
         report = await self.queue_manager.run_startup_health_check()
         return report
+
+    def _rpc_system_refresh_network(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        if hasattr(self.session_pool, "refresh_adapters"):
+            adapters = self.session_pool.refresh_adapters()
+            return {"success": True, "count": len(adapters)}
+        return {"success": False, "count": 0}
 
     async def _rpc_task_update_url(self, params: Dict[str, Any]) -> Dict[str, Any]:
         task_id = params.get("task_id")

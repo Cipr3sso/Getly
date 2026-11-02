@@ -332,6 +332,7 @@ public sealed partial class MainWindow : Window
             if (tag == "Network")
             {
                 SwitchToView("NETWORK");
+                _ = ViewModel.RefreshNetworkAdaptersCommand.ExecuteAsync(null);
             }
             else
             {
@@ -628,7 +629,7 @@ public sealed partial class MainWindow : Window
         var task = GetTask(sender) ?? ViewModel.SelectedTask;
         if (task == null) return;
 
-        ShowFloatingWindow(task);
+        _ = ShowTaskDetailsDialogAsync(task);
     }
 
     #endregion
@@ -984,14 +985,172 @@ public sealed partial class MainWindow : Window
             AddRow("Velocità Corrente", task.SpeedFormatted);
             AddRow("Tempo Stimato Rimanente (ETA)", task.EtaFormatted);
 
+            bool isTorrent = task.IsTorrent
+                || (task.Url != null && task.Url.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase))
+                || (task.Filename != null && task.Filename.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase));
+
+            if (isTorrent)
+            {
+                contentPanel.Width = 560;
+                var files = task.Files;
+                if (files == null || files.Count == 0)
+                {
+                    files = await ViewModel.GetTorrentFilesAsync(task.TaskId);
+                }
+
+                if (task.PiecesTotal > 0 || task.Seeds > 0 || task.Peers > 0)
+                {
+                    AddRow("Parti / Pezzi Torrent", $"{task.PiecesCompleted} su {task.PiecesTotal} completati ({task.Seeds} Seed, {task.Peers} Peer)");
+                }
+
+                if (files != null && files.Count > 0)
+                {
+                    var filesSection = new StackPanel { Spacing = 6, Margin = new Thickness(0, 6, 0, 0) };
+                    filesSection.Children.Add(new TextBlock
+                    {
+                        Text = $"Parti e File del Torrent ({files.Count} elementi):",
+                        FontSize = 12,
+                        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                        Foreground = GetThemeSecondaryBrush()
+                    });
+
+                    var headerGrid = new Grid
+                    {
+                        Margin = new Thickness(8, 4, 8, 4),
+                        ColumnDefinitions =
+                        {
+                            new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                            new ColumnDefinition { Width = new GridLength(90, GridUnitType.Pixel) },
+                            new ColumnDefinition { Width = new GridLength(90, GridUnitType.Pixel) },
+                            new ColumnDefinition { Width = new GridLength(110, GridUnitType.Pixel) }
+                        }
+                    };
+
+                    TextBlock MakeHeader(string title, int col, TextAlignment align = TextAlignment.Left)
+                    {
+                        var tb = new TextBlock
+                        {
+                            Text = title,
+                            FontSize = 11,
+                            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                            Foreground = GetThemeSecondaryBrush(),
+                            TextAlignment = align
+                        };
+                        Grid.SetColumn(tb, col);
+                        return tb;
+                    }
+
+                    headerGrid.Children.Add(MakeHeader("File / Parte", 0));
+                    headerGrid.Children.Add(MakeHeader("Scaricato", 1, TextAlignment.Right));
+                    headerGrid.Children.Add(MakeHeader("Totale", 2, TextAlignment.Right));
+                    headerGrid.Children.Add(MakeHeader("Progresso", 3, TextAlignment.Center));
+
+                    var filesStack = new StackPanel { Spacing = 4 };
+                    foreach (var f in files)
+                    {
+                        var rowGrid = new Grid
+                        {
+                            Padding = new Thickness(8, 6, 8, 6),
+                            Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(12, 255, 255, 255)),
+                            CornerRadius = new CornerRadius(4),
+                            ColumnDefinitions =
+                            {
+                                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                                new ColumnDefinition { Width = new GridLength(90, GridUnitType.Pixel) },
+                                new ColumnDefinition { Width = new GridLength(90, GridUnitType.Pixel) },
+                                new ColumnDefinition { Width = new GridLength(110, GridUnitType.Pixel) }
+                            }
+                        };
+
+                        var nameBlock = new TextBlock
+                        {
+                            Text = !string.IsNullOrEmpty(f.Name) ? f.Name : (!string.IsNullOrEmpty(f.Path) ? System.IO.Path.GetFileName(f.Path) : $"Parte #{f.Index + 1}"),
+                            FontSize = 11,
+                            TextTrimming = TextTrimming.CharacterEllipsis,
+                            VerticalAlignment = VerticalAlignment.Center
+                        };
+                        ToolTipService.SetToolTip(nameBlock, f.Path ?? f.Name);
+                        Grid.SetColumn(nameBlock, 0);
+                        rowGrid.Children.Add(nameBlock);
+
+                        var dlBlock = new TextBlock
+                        {
+                            Text = TaskItemViewModel.FormatBytes(f.Downloaded),
+                            FontSize = 11,
+                            TextAlignment = TextAlignment.Right,
+                            Foreground = GetThemeSecondaryBrush(),
+                            VerticalAlignment = VerticalAlignment.Center
+                        };
+                        Grid.SetColumn(dlBlock, 1);
+                        rowGrid.Children.Add(dlBlock);
+
+                        var sizeBlock = new TextBlock
+                        {
+                            Text = TaskItemViewModel.FormatBytes(f.Size),
+                            FontSize = 11,
+                            TextAlignment = TextAlignment.Right,
+                            Foreground = GetThemeSecondaryBrush(),
+                            VerticalAlignment = VerticalAlignment.Center
+                        };
+                        Grid.SetColumn(sizeBlock, 2);
+                        rowGrid.Children.Add(sizeBlock);
+
+                        var progPanel = new StackPanel
+                        {
+                            Spacing = 2,
+                            VerticalAlignment = VerticalAlignment.Center,
+                            Margin = new Thickness(8, 0, 0, 0)
+                        };
+                        var pBar = new ProgressBar
+                        {
+                            Minimum = 0,
+                            Maximum = 100,
+                            Value = Math.Clamp(f.Progress * 100.0, 0.0, 100.0),
+                            Height = 4,
+                            Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 16, 185, 129))
+                        };
+                        var pText = new TextBlock
+                        {
+                            Text = $"{f.Progress * 100.0:0.#}%",
+                            FontSize = 10,
+                            HorizontalAlignment = HorizontalAlignment.Center,
+                            Foreground = GetThemeSecondaryBrush()
+                        };
+                        progPanel.Children.Add(pBar);
+                        progPanel.Children.Add(pText);
+                        Grid.SetColumn(progPanel, 3);
+                        rowGrid.Children.Add(progPanel);
+
+                        filesStack.Children.Add(rowGrid);
+                    }
+
+                    var filesContainer = new Border
+                    {
+                        BorderBrush = GetThemeBorderBrush(),
+                        BorderThickness = new Thickness(1),
+                        CornerRadius = new CornerRadius(6),
+                        Padding = new Thickness(4),
+                        Child = new ScrollViewer
+                        {
+                            MaxHeight = 220,
+                            Content = filesStack
+                        }
+                    };
+
+                    filesSection.Children.Add(headerGrid);
+                    filesSection.Children.Add(filesContainer);
+                    contentPanel.Children.Add(filesSection);
+                }
+            }
+
             var dialog = new ContentDialog
             {
-                Title = "Dettagli del Download",
+                Title = isTorrent ? "Dettagli del Download (Torrent/P2P)" : "Dettagli del Download",
                 CloseButtonText = "Chiudi",
                 DefaultButton = ContentDialogButton.Close,
                 Content = new ScrollViewer
                 {
-                    MaxHeight = 420,
+                    MaxHeight = isTorrent ? 520 : 420,
                     Content = contentPanel
                 }
             };

@@ -137,7 +137,7 @@ class QueueManager:
         for task in list(self._tasks.values()):
             if task.filename:
                 target_path = Path(task.destination_dir) / task.filename
-                if task.status == DownloadStatus.COMPLETED and not target_path.is_file():
+                if task.status == DownloadStatus.COMPLETED and not target_path.exists():
                     task.status = DownloadStatus.DELETED
                     task.error_message = "File rimosso o spostato"
                     self.state_store.update_task_status(task.task_id, DownloadStatus.DELETED, error="File rimosso o spostato")
@@ -237,7 +237,7 @@ class QueueManager:
                 continue
             try:
                 target_path = Path(task.destination_dir) / task.filename
-                file_exists = target_path.is_file()
+                file_exists = target_path.exists()
 
                 if task.status == DownloadStatus.COMPLETED and not file_exists:
                     logger.info("File %s moved or deleted on disk. Moving task %s to DELETED.", target_path, task.task_id)
@@ -411,12 +411,15 @@ class QueueManager:
         )
         resolved_task_type = "TORRENT" if is_torrent else (task_type or "HTTP")
 
-        # Detect category if not explicitly given, resolving aliases
-        raw_category = category
-        if raw_category and raw_category.strip().lower() in CATEGORY_ALIASES:
-            raw_category = CATEGORY_ALIASES[raw_category.strip().lower()]
-
-        task_category = raw_category or (CATEGORY_TORRENTS if is_torrent else detect_category(clean_filename or url))
+        # For torrents, the category must ALWAYS be Torrents (cannot be overridden by Altro)
+        if is_torrent:
+            task_category = CATEGORY_TORRENTS
+        else:
+            # Detect category if not explicitly given, resolving aliases
+            raw_category = category
+            if raw_category and raw_category.strip().lower() in CATEGORY_ALIASES:
+                raw_category = CATEGORY_ALIASES[raw_category.strip().lower()]
+            task_category = raw_category or detect_category(clean_filename or url)
 
         # Route to category subfolder if destination_dir not explicitly provided or is default
         if destination_dir is None or Path(destination_dir) == self.default_download_dir:

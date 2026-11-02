@@ -355,8 +355,10 @@ public partial class MainViewModel : ObservableObject
                 var up = tick.Stats.Interfaces.Where(i => i.IsUp).Select(i => i.FriendlyName ?? i.Name);
                 ActiveAdaptersSummary = string.Join(" | ", up);
 
+                var incomingNames = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var ifDto in tick.Stats.Interfaces)
                 {
+                    incomingNames.Add(ifDto.Name);
                     if (_adapterIndex.TryGetValue(ifDto.Name, out var existingAdapter))
                     {
                         existingAdapter.UpdateFrom(ifDto);
@@ -366,6 +368,16 @@ public partial class MainViewModel : ObservableObject
                         var newAdapter = new NetworkAdapterItemViewModel(ifDto);
                         _adapterIndex[newAdapter.Name] = newAdapter;
                         NetworkAdapters.Add(newAdapter);
+                    }
+                }
+
+                for (int i = NetworkAdapters.Count - 1; i >= 0; i--)
+                {
+                    var existing = NetworkAdapters[i];
+                    if (!incomingNames.Contains(existing.Name))
+                    {
+                        NetworkAdapters.RemoveAt(i);
+                        _adapterIndex.Remove(existing.Name);
                     }
                 }
             }
@@ -644,6 +656,33 @@ public partial class MainViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusMessage = $"Errore modifica scheda {adapter.DisplayName}: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    public async Task RefreshNetworkAdaptersAsync()
+    {
+        try
+        {
+            await _ipcClient.RefreshNetworkAsync();
+            var stats = await _ipcClient.GetStatsAsync();
+            UpdateSystemStats(stats);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Errore aggiornamento rete: {ex.Message}";
+        }
+    }
+
+    public async Task<List<TorrentFileDto>> GetTorrentFilesAsync(string taskId)
+    {
+        try
+        {
+            return await _ipcClient.GetTorrentFilesAsync(taskId);
+        }
+        catch
+        {
+            return [];
         }
     }
 

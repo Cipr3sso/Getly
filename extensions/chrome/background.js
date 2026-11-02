@@ -631,6 +631,15 @@ function detectCategory(filename, mime) {
   const lowerMime = (mime || "").toLowerCase();
 
   if (
+    lower.startsWith("magnet:") ||
+    lower.endsWith(".torrent") ||
+    lowerMime.includes("torrent") ||
+    lowerMime.includes("bittorrent")
+  ) {
+    return "Torrents";
+  }
+
+  if (
     lowerMime.startsWith("video/") ||
     lowerMime.startsWith("audio/") ||
     lower.endsWith(".mp4") || lower.endsWith(".mkv") || lower.endsWith(".webm") ||

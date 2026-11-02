@@ -68,6 +68,30 @@ public sealed record TaskItemDto
 
     [JsonPropertyName("info_hash")]
     public string? InfoHash { get; init; }
+
+    [JsonPropertyName("files_status")]
+    public List<TorrentFileStatusDto>? FilesStatus { get; init; }
+}
+
+public sealed record TorrentFileStatusDto
+{
+    [JsonPropertyName("index")]
+    public int Index { get; set; }
+
+    [JsonPropertyName("path")]
+    public string Path { get; set; } = string.Empty;
+
+    [JsonPropertyName("size")]
+    public long Size { get; set; }
+
+    [JsonPropertyName("downloaded")]
+    public long Downloaded { get; set; }
+
+    [JsonPropertyName("progress")]
+    public double Progress { get; set; }
+
+    [JsonPropertyName("priority")]
+    public int Priority { get; set; } = 4;
 }
 
 public sealed record TelemetryTickDto
@@ -196,19 +220,25 @@ public sealed record TaskCountsDto
 public sealed record TorrentFileDto
 {
     [JsonPropertyName("index")]
-    public int Index { get; init; }
+    public int Index { get; set; }
 
     [JsonPropertyName("name")]
-    public string Name { get; init; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("path")]
+    public string Path { get; set; } = string.Empty;
 
     [JsonPropertyName("size")]
-    public long Size { get; init; }
+    public long Size { get; set; }
+
+    [JsonPropertyName("downloaded")]
+    public long Downloaded { get; set; }
 
     [JsonPropertyName("progress")]
-    public double Progress { get; init; }
+    public double Progress { get; set; }
 
     [JsonPropertyName("priority")]
-    public int Priority { get; init; }
+    public int Priority { get; set; }
 }
 
 public sealed record SystemHealthReportDto

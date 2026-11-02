@@ -98,6 +98,21 @@ public partial class TaskItemViewModel : ObservableObject
     [ObservableProperty]
     private string _statusIconGlyph = "\uE896"; // Download icon
 
+    [ObservableProperty]
+    private int _seeds;
+
+    [ObservableProperty]
+    private int _peers;
+
+    [ObservableProperty]
+    private int _piecesTotal;
+
+    [ObservableProperty]
+    private int _piecesCompleted;
+
+    [ObservableProperty]
+    private List<TorrentFileDto>? _files;
+
     public TaskItemViewModel(TaskItemDto dto)
     {
         UpdateFrom(dto);
@@ -123,6 +138,23 @@ public partial class TaskItemViewModel : ObservableObject
         ProgressRatio = Math.Clamp(dto.ProgressRatio, 0.0, 1.0);
         ErrorMessage = dto.ErrorMessage;
         IsTorrent = string.Equals(dto.TaskType, "TORRENT", StringComparison.OrdinalIgnoreCase);
+        Seeds = dto.Seeds;
+        Peers = dto.Peers;
+        PiecesTotal = dto.PiecesTotal;
+        PiecesCompleted = dto.PiecesCompleted;
+        if (dto.FilesStatus != null)
+        {
+            Files = dto.FilesStatus.Select(f => new TorrentFileDto
+            {
+                Index = f.Index,
+                Name = System.IO.Path.GetFileName(f.Path),
+                Path = f.Path,
+                Size = f.Size,
+                Downloaded = f.Downloaded,
+                Progress = f.Progress,
+                Priority = f.Priority
+            }).ToList();
+        }
 
         // State Flags
         IsActive = string.Equals(dto.Status, "DOWNLOADING", StringComparison.OrdinalIgnoreCase);
@@ -232,6 +264,7 @@ public partial class TaskItemViewModel : ObservableObject
                 "documenti" or "pdf" or "ebook" or "doc" => "#C42B1C",
                 "audio" or "musica" or "mp3" => "#8764B8",
                 "software" or "programmi" or "iso" or "exe" => "#008272",
+                "torrents" or "torrent" or "p2p" => "#A855F7",
                 _ => "#475569"
             };
         }
@@ -303,6 +336,7 @@ public partial class BatchDownloadItem : ObservableObject
                 "documenti" or "pdf" or "ebook" or "doc" => "#C42B1C",
                 "audio" or "musica" or "mp3" => "#8764B8",
                 "software" or "programmi" or "iso" or "exe" => "#008272",
+                "torrents" or "torrent" or "p2p" => "#A855F7",
                 _ => "#475569"
             };
         }
@@ -340,7 +374,7 @@ public partial class BatchDownloadItem : ObservableObject
 
     public static string DeduceCategory(string filename, string url)
     {
-        if (url.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase)) return "Torrent";
+        if (url.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase) || filename.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase)) return "Torrent";
         string ext = System.IO.Path.GetExtension(filename).ToLowerInvariant();
 
         return ext switch
