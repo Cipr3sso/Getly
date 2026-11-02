@@ -110,11 +110,9 @@ public sealed partial class MainWindow : Window
         Title = "Getly Download Manager";
         AppWindow.Resize(new SizeInt32(1100, 680));
 
-        // 1. Integrated Dark Titlebar (Full Mica / Fluent TitleBar)
+        // 1. Integrated Titlebar & Theme (Full Mica / Fluent TitleBar)
         ExtendsContentIntoTitleBar = true;
-        RootGrid.RequestedTheme = ElementTheme.Dark;
-        UpdateThemeIcon(ElementTheme.Dark);
-        UpdateTitleBarColors(ElementTheme.Dark);
+        ApplyTheme(ViewModel.AppTheme);
         SetTitleBar(TitleDragArea);
 
         // 2. Intercept Win32 WndProc to enforce physical unpassable min dimensions
@@ -145,25 +143,38 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    #region Theme Switcher (Light / Dark Mode)
+    #region Theme Management (Light / Dark Mode)
 
-    private void ThemeToggleButton_Click(object sender, RoutedEventArgs e)
+    public void ApplyTheme(string themeName)
     {
+        var theme = string.Equals(themeName, "Light", StringComparison.OrdinalIgnoreCase)
+            ? ElementTheme.Light
+            : ElementTheme.Dark;
+
         if (this.Content is FrameworkElement root)
         {
-            var newTheme = root.ActualTheme == ElementTheme.Dark ? ElementTheme.Light : ElementTheme.Dark;
-            root.RequestedTheme = newTheme;
-            UpdateThemeIcon(newTheme);
-            UpdateTitleBarColors(newTheme);
-            _floatingWindow?.SetTheme(newTheme);
+            root.RequestedTheme = theme;
+        }
+        UpdateTitleBarColors(theme);
+        _floatingWindow?.SetTheme(theme);
+
+        if (ThemeModeComboBox is not null)
+        {
+            ThemeModeComboBox.SelectedIndex = theme == ElementTheme.Light ? 1 : 0;
         }
     }
 
-    private void UpdateThemeIcon(ElementTheme theme)
+    private async void ThemeModeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        // Sole (E706) in Dark mode, Luna (E708) in Light mode
-        ThemeToggleIcon.Glyph = theme == ElementTheme.Dark ? "\uE706" : "\uE708";
-        ToolTipService.SetToolTip(ThemeToggleButton, theme == ElementTheme.Dark ? "Passa a tema Chiaro" : "Passa a tema Scuro");
+        if (ThemeModeComboBox?.SelectedItem is ComboBoxItem item && item.Tag is string tag)
+        {
+            if (!string.Equals(ViewModel.AppTheme, tag, StringComparison.OrdinalIgnoreCase))
+            {
+                ViewModel.AppTheme = tag;
+                ApplyTheme(tag);
+                await ViewModel.SaveSettingsAsync();
+            }
+        }
     }
 
     private void UpdateTitleBarColors(ElementTheme theme)
@@ -189,6 +200,30 @@ public sealed partial class MainWindow : Window
                 ? Windows.UI.Color.FromArgb(128, 255, 255, 255)
                 : Windows.UI.Color.FromArgb(128, 0, 0, 0);
         }
+    }
+
+    private Microsoft.UI.Xaml.Media.Brush GetThemeSecondaryBrush()
+    {
+        bool isDark = (this.Content as FrameworkElement)?.ActualTheme == ElementTheme.Dark;
+        return isDark
+            ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(204, 255, 255, 255))
+            : new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(170, 0, 0, 0));
+    }
+
+    private Microsoft.UI.Xaml.Media.Brush GetThemePrimaryBrush()
+    {
+        bool isDark = (this.Content as FrameworkElement)?.ActualTheme == ElementTheme.Dark;
+        return isDark
+            ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.White)
+            : new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Black);
+    }
+
+    private Microsoft.UI.Xaml.Media.Brush GetThemeBorderBrush()
+    {
+        bool isDark = (this.Content as FrameworkElement)?.ActualTheme == ElementTheme.Dark;
+        return isDark
+            ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(38, 255, 255, 255))
+            : new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(25, 0, 0, 0));
     }
 
     #endregion
@@ -254,20 +289,7 @@ public sealed partial class MainWindow : Window
         return fgHwnd != hwnd;
     }
 
-    private void FloatingWindowButton_Click(object sender, RoutedEventArgs e)
-    {
-        var target = ViewModel.SelectedTask 
-                     ?? ViewModel.Tasks.FirstOrDefault(t => t.IsActive) 
-                     ?? ViewModel.Tasks.FirstOrDefault();
-        if (target != null)
-        {
-            ShowFloatingWindow(target);
-        }
-        else
-        {
-            ViewModel.StatusMessage = "Nessun download disponibile da mostrare nella finestra mini.";
-        }
-    }
+
 
     #endregion
 
@@ -371,7 +393,8 @@ public sealed partial class MainWindow : Window
                         new TextBlock
                         {
                             Text = $"Stai per rimuovere {selectedTasks.Count} download dalla coda di Getly.",
-                            TextWrapping = TextWrapping.Wrap
+                            TextWrapping = TextWrapping.Wrap,
+                            Foreground = GetThemeSecondaryBrush()
                         },
                         deleteDiskFilesBox
                     }
@@ -540,19 +563,26 @@ public sealed partial class MainWindow : Window
         _ = ShowCloudflareSolveDialogAsync(task);
     }
 
+    private void OnShowFloatingWindowClick(object sender, RoutedEventArgs e)
+    {
+        var task = GetTask(sender);
+        if (task == null) return;
+        ShowFloatingWindow(task);
+    }
+
+    private void OnShowDetailsClick(object sender, RoutedEventArgs e)
+    {
+        var task = GetTask(sender);
+        if (task == null) return;
+        _ = ShowTaskDetailsDialogAsync(task);
+    }
+
     private void OnRowDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
         var task = GetTask(sender);
         if (task == null) return;
 
-        if (task.IsCompleted)
-        {
-            ViewModel.OpenFileCommand.Execute(task);
-        }
-        else
-        {
-            _ = ShowTaskDetailsDialogAsync(task);
-        }
+        ShowFloatingWindow(task);
     }
 
     #endregion
@@ -565,6 +595,10 @@ public sealed partial class MainWindow : Window
         {
             dialog.XamlRoot = root.XamlRoot;
             dialog.RequestedTheme = root.ActualTheme;
+            if (dialog.Content is FrameworkElement contentElem)
+            {
+                contentElem.RequestedTheme = root.ActualTheme;
+            }
         }
     }
 
@@ -596,7 +630,7 @@ public sealed partial class MainWindow : Window
                         {
                             Text = "Inserisci l'URL del file da aggiungere alla coda di Getly:",
                             FontSize = 12,
-                            Foreground = Application.Current.Resources["TextFillColorSecondaryBrush"] as Microsoft.UI.Xaml.Media.Brush
+                            Foreground = GetThemeSecondaryBrush()
                         },
                         urlBox
                     }
@@ -650,7 +684,7 @@ public sealed partial class MainWindow : Window
             {
                 Text = "Nessun URL analizzato.",
                 FontSize = 11,
-                Foreground = Application.Current.Resources["TextFillColorSecondaryBrush"] as Microsoft.UI.Xaml.Media.Brush,
+                Foreground = GetThemeSecondaryBrush(),
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(12, 0, 0, 0)
             };
@@ -670,7 +704,7 @@ public sealed partial class MainWindow : Window
                 SelectionMode = ListViewSelectionMode.None,
                 Height = 180,
                 BorderThickness = new Thickness(1),
-                BorderBrush = Application.Current.Resources["CardStrokeColorDefaultBrush"] as Microsoft.UI.Xaml.Media.Brush,
+                BorderBrush = GetThemeBorderBrush(),
                 CornerRadius = new CornerRadius(6),
                 Padding = new Thickness(4),
                 Visibility = Visibility.Collapsed
@@ -752,7 +786,7 @@ public sealed partial class MainWindow : Window
                     {
                         Text = "Incolla un testo o un elenco di link per estrarre e accodare i file in blocco:",
                         FontSize = 12,
-                        Foreground = Application.Current.Resources["TextFillColorSecondaryBrush"] as Microsoft.UI.Xaml.Media.Brush
+                        Foreground = GetThemeSecondaryBrush()
                     },
                     inputTextBox,
                     analyzeRow,
@@ -815,7 +849,8 @@ public sealed partial class MainWindow : Window
                 {
                     Text = label,
                     FontSize = 11,
-                    Foreground = Application.Current.Resources["TextFillColorSecondaryBrush"] as Microsoft.UI.Xaml.Media.Brush
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    Foreground = GetThemeSecondaryBrush()
                 });
                 p.Children.Add(new TextBox
                 {
@@ -945,7 +980,8 @@ public sealed partial class MainWindow : Window
             {
                 Text = $"Il download di \"{task.Filename}\" è protetto dalla verifica di sicurezza Cloudflare (Turnstile / WAF).",
                 TextWrapping = TextWrapping.Wrap,
-                FontSize = 13
+                FontSize = 13,
+                Foreground = GetThemePrimaryBrush()
             });
 
             stack.Children.Add(new TextBlock
@@ -953,7 +989,7 @@ public sealed partial class MainWindow : Window
                 Text = "Vuoi aprire il collegamento nel tuo browser per confermare di non essere un bot? Una volta completata la verifica nel browser, potrai riprendere il download.",
                 TextWrapping = TextWrapping.Wrap,
                 FontSize = 12,
-                Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"]
+                Foreground = GetThemeSecondaryBrush()
             });
 
             var urlBox = new TextBox

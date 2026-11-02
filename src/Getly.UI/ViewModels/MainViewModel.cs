@@ -56,6 +56,9 @@ public partial class MainViewModel : ObservableObject
     private bool _enableFloatingWindow = true;
 
     [ObservableProperty]
+    private string _appTheme = "Dark";
+
+    [ObservableProperty]
     private bool _autostartEnabled = IsAutostartConfigured();
 
     partial void OnAutostartEnabledChanged(bool value)
@@ -566,6 +569,8 @@ public partial class MainViewModel : ObservableObject
                     VpnShieldActive = settings.VpnShieldActive;
                     AutostartEnabled = settings.AutostartEnabled;
                     EnableFloatingWindow = settings.EnableFloatingWindow;
+                    if (!string.IsNullOrWhiteSpace(settings.AppTheme))
+                        AppTheme = settings.AppTheme;
                 }
             }
         }
@@ -590,7 +595,8 @@ public partial class MainViewModel : ObservableObject
                 AutoCategorize = AutoCategorize,
                 VpnShieldActive = VpnShieldActive,
                 AutostartEnabled = AutostartEnabled,
-                EnableFloatingWindow = EnableFloatingWindow
+                EnableFloatingWindow = EnableFloatingWindow,
+                AppTheme = AppTheme
             };
 
             var filePath = GetSettingsFilePath();
@@ -653,4 +659,5 @@ public class GetlySettingsModel
     public bool VpnShieldActive { get; set; } = true;
     public bool AutostartEnabled { get; set; } = false;
     public bool EnableFloatingWindow { get; set; } = true;
+    public string AppTheme { get; set; } = "Dark";
 }

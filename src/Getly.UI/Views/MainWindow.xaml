@@ -50,7 +50,6 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="140" />
             </Grid.ColumnDefinitions>
 
@@ -64,37 +63,6 @@
 
             <!-- Dedicated Window Dragging Area -->
             <Border Grid.Column="1" Background="Transparent" x:Name="TitleDragArea" />
-
-            <!-- Title Bar Action Buttons (Mini Window & Theme Switcher) -->
-            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" Margin="0,0,8,0" VerticalAlignment="Center">
-                <Button
-                    x:Name="FloatingWindowButton"
-                    Width="36"
-                    Height="32"
-                    CornerRadius="4"
-                    Padding="0"
-                    Background="Transparent"
-                    BorderThickness="0"
-                    VerticalAlignment="Center"
-                    Click="FloatingWindowButton_Click"
-                    ToolTipService.ToolTip="Apri finestra mini galleggiante">
-                    <FontIcon Glyph="&#xE740;" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-                </Button>
-
-                <Button
-                    x:Name="ThemeToggleButton"
-                    Width="36"
-                    Height="32"
-                    CornerRadius="4"
-                    Padding="0"
-                    Background="Transparent"
-                    BorderThickness="0"
-                    VerticalAlignment="Center"
-                    Click="ThemeToggleButton_Click"
-                    ToolTipService.ToolTip="Cambia tema chiaro/scuro">
-                    <FontIcon x:Name="ThemeToggleIcon" Glyph="&#xE706;" FontSize="14" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-                </Button>
-            </StackPanel>
         </Grid>
 
         <!-- Main Body: Navigation View -->
@@ -249,6 +217,8 @@
                                             <MenuFlyoutItem Text="Pausa" Icon="Pause" Click="OnPauseTaskClick" />
                                             <MenuFlyoutItem Text="Risolvi verifica nel browser" Icon="Globe" Visibility="{x:Bind IsCloudflareError, Mode=OneWay}" Click="OnSolveCloudflareClick" />
                                             <MenuFlyoutSeparator />
+                                            <MenuFlyoutItem Text="Apri nella finestra mini" Icon="OpenWith" Click="OnShowFloatingWindowClick" />
+                                            <MenuFlyoutItem Text="Dettagli del download" Icon="Document" Click="OnShowDetailsClick" />
                                             <MenuFlyoutItem Text="Mostra nella cartella" Icon="Folder" Click="OnOpenFolderClick" />
                                             <MenuFlyoutItem Text="Apri file" Icon="OpenFile" Click="OnOpenFileClick" />
                                             <MenuFlyoutItem Text="Copia URL sorgente" Icon="Copy" Click="OnCopyUrlClick" />
@@ -551,6 +521,22 @@
                                 <ToggleSwitch
                                     Header="Protezione automatica NordLynx / Killswitch"
                                     IsOn="{x:Bind ViewModel.VpnShieldActive, Mode=TwoWay}" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Appearance & Theme Card -->
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="18,14,18,14">
+                            <StackPanel Spacing="14">
+                                <TextBlock Text="Aspetto &amp; Tema" FontSize="14" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="Tema dell'applicazione" FontSize="12" FontWeight="Medium" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <ComboBox x:Name="ThemeModeComboBox" Width="240" SelectionChanged="ThemeModeComboBox_SelectionChanged">
+                                        <ComboBoxItem Content="Tema Scuro (Dark)" Tag="Dark" />
+                                        <ComboBoxItem Content="Tema Chiaro (Light)" Tag="Light" />
+                                    </ComboBox>
+                                    <TextBlock Text="Scegli tra tema Scuro per ridurre l'affaticamento visivo o tema Chiaro ad alto contrasto." FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" />
+                                </StackPanel>
                             </StackPanel>
                         </Border>
 
