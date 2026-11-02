@@ -46,22 +46,36 @@
             <!-- Dedicated Window Dragging Area -->
             <Border Grid.Column="1" Background="Transparent" x:Name="TitleDragArea" />
 
-            <!-- Theme Toggle Button (Light / Dark Mode Switcher) -->
-            <Button
-                Grid.Column="2"
-                x:Name="ThemeToggleButton"
-                Width="36"
-                Height="32"
-                CornerRadius="4"
-                Padding="0"
-                Margin="0,0,8,0"
-                Background="Transparent"
-                BorderThickness="0"
-                VerticalAlignment="Center"
-                Click="ThemeToggleButton_Click"
-                ToolTipService.ToolTip="Cambia tema chiaro/scuro">
-                <FontIcon x:Name="ThemeToggleIcon" Glyph="&#xE706;" FontSize="14" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-            </Button>
+            <!-- Title Bar Action Buttons (Mini Window & Theme Switcher) -->
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" Margin="0,0,8,0" VerticalAlignment="Center">
+                <Button
+                    x:Name="FloatingWindowButton"
+                    Width="36"
+                    Height="32"
+                    CornerRadius="4"
+                    Padding="0"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    VerticalAlignment="Center"
+                    Click="FloatingWindowButton_Click"
+                    ToolTipService.ToolTip="Apri finestra mini galleggiante">
+                    <FontIcon Glyph="&#xE740;" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                </Button>
+
+                <Button
+                    x:Name="ThemeToggleButton"
+                    Width="36"
+                    Height="32"
+                    CornerRadius="4"
+                    Padding="0"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    VerticalAlignment="Center"
+                    Click="ThemeToggleButton_Click"
+                    ToolTipService.ToolTip="Cambia tema chiaro/scuro">
+                    <FontIcon x:Name="ThemeToggleIcon" Glyph="&#xE706;" FontSize="14" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                </Button>
+            </StackPanel>
         </Grid>
 
         <!-- Main Body: Navigation View -->
@@ -486,6 +500,12 @@
                                 <ToggleSwitch
                                     Header="Avvia Getly all'avvio del sistema"
                                     IsOn="{x:Bind ViewModel.AutostartEnabled, Mode=TwoWay}" />
+
+                                <Border Height="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" />
+
+                                <ToggleSwitch
+                                    Header="Mostra finestra mini galleggiante durante i download in background"
+                                    IsOn="{x:Bind ViewModel.EnableFloatingWindow, Mode=TwoWay}" />
                             </StackPanel>
                         </Border>
 

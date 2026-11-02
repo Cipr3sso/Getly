@@ -246,4 +246,41 @@ public class IpcAndSupervisorTests : IDisposable
             await supervisor.StopEngineAsync(1500);
         }
     }
+
+    [Fact]
+    public void MainViewModel_EnableFloatingWindow_DefaultAndEvent_WorkCorrectly()
+    {
+        var vm = new MainViewModel();
+        Assert.True(vm.EnableFloatingWindow);
+
+        vm.EnableFloatingWindow = false;
+        Assert.False(vm.EnableFloatingWindow);
+
+        bool eventFired = false;
+        TaskItemViewModel? notifiedTask = null;
+        vm.TaskNotificationTriggered += task =>
+        {
+            eventFired = true;
+            notifiedTask = task;
+        };
+
+        var dto = new TaskItemDto
+        {
+            TaskId = "test-floating-1",
+            Url = "https://example.com/test.zip",
+            Filename = "test.zip",
+            Status = "DOWNLOADING",
+            TotalSize = 1000,
+            DownloadedBytes = 500,
+            SpeedBps = 100,
+            TaskType = "HTTP"
+        };
+        var taskVm = new TaskItemViewModel(dto);
+
+        vm.NotifyTaskActive(taskVm);
+
+        Assert.True(eventFired);
+        Assert.NotNull(notifiedTask);
+        Assert.Equal("test-floating-1", notifiedTask.TaskId);
+    }
 }

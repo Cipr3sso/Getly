@@ -26,6 +26,12 @@ public partial class MainViewModel : ObservableObject
     public ObservableCollection<TaskItemViewModel> FilteredTasks { get; } = [];
     public ObservableCollection<NetworkAdapterItemViewModel> NetworkAdapters { get; } = [];
     public IpcClient IpcClient => _ipcClient;
+    public event Action<TaskItemViewModel>? TaskNotificationTriggered;
+
+    public void NotifyTaskActive(TaskItemViewModel task)
+    {
+        TaskNotificationTriggered?.Invoke(task);
+    }
 
     [ObservableProperty]
     private string _defaultDownloadDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "Getly");
@@ -35,6 +41,9 @@ public partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     private long _globalSpeedLimitBps = 0;
+
+    [ObservableProperty]
+    private bool _enableFloatingWindow = true;
 
     [ObservableProperty]
     private bool _autostartEnabled = IsAutostartConfigured();
@@ -118,7 +127,14 @@ public partial class MainViewModel : ObservableObject
     {
         _supervisor = supervisor ?? new EngineSupervisor();
         _ipcClient = ipcClient ?? new IpcClient(_supervisor.PipeName);
-        _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
+        try
+        {
+            _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
+        }
+        catch
+        {
+            _dispatcherQueue = null;
+        }
 
         _ipcClient.OnConnected += () => RunOnUI(() => IsBackendConnected = true);
         _ipcClient.OnDisconnected += () => RunOnUI(() => IsBackendConnected = false);
@@ -261,6 +277,10 @@ public partial class MainViewModel : ObservableObject
                     _taskIndex[newVm.TaskId] = newVm;
                     Tasks.Add(newVm);
                     listStructureChanged = true;
+                    if (newVm.IsActive)
+                    {
+                        TaskNotificationTriggered?.Invoke(newVm);
+                    }
                 }
             }
 
@@ -332,14 +352,20 @@ public partial class MainViewModel : ObservableObject
             var task = await _ipcClient.AddTaskAsync(url.Trim());
             RunOnUI(() =>
             {
-                if (!_taskIndex.ContainsKey(task.TaskId))
+                TaskItemViewModel vm;
+                if (!_taskIndex.TryGetValue(task.TaskId, out var existing))
                 {
-                    var vm = new TaskItemViewModel(task);
+                    vm = new TaskItemViewModel(task);
                     _taskIndex[vm.TaskId] = vm;
                     Tasks.Add(vm);
                     ApplyFilters();
                 }
+                else
+                {
+                    vm = existing;
+                }
                 StatusMessage = "Download aggiunto alla coda.";
+                TaskNotificationTriggered?.Invoke(vm);
             });
         }
         catch (Exception ex)
@@ -379,6 +405,7 @@ public partial class MainViewModel : ObservableObject
             target.IsActive = true;
             target.IsPaused = false;
             target.StatusDisplay = "In download";
+            TaskNotificationTriggered?.Invoke(target);
         }
         catch (Exception ex)
         {

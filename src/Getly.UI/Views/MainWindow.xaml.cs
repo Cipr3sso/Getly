@@ -21,6 +21,7 @@ public sealed partial class MainWindow : Window
     public MainViewModel ViewModel { get; }
     private bool _initialized;
     private bool _isDialogOpen;
+    private FloatingDownloadWindow? _floatingWindow;
 
     #region Win32 WndProc & Minimum Window Size (WM_GETMINMAXINFO)
 
@@ -66,6 +67,13 @@ public sealed partial class MainWindow : Window
 
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
 
     private IntPtr HookWndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
     {
@@ -115,6 +123,10 @@ public sealed partial class MainWindow : Window
         // Launch background supervisor and connect IPC
         Activated += MainWindow_Activated;
 
+        // Mini Floating Download Window integration
+        ViewModel.TaskNotificationTriggered += OnTaskNotificationTriggered;
+        AppWindow.Changed += AppWindow_Changed;
+
         // Default initial selection
         if (NavView.MenuItems.Count > 0)
         {
@@ -141,6 +153,7 @@ public sealed partial class MainWindow : Window
             root.RequestedTheme = newTheme;
             UpdateThemeIcon(newTheme);
             UpdateTitleBarColors(newTheme);
+            _floatingWindow?.SetTheme(newTheme);
         }
     }
 
@@ -173,6 +186,83 @@ public sealed partial class MainWindow : Window
             titleBar.ButtonInactiveForegroundColor = isDark
                 ? Windows.UI.Color.FromArgb(128, 255, 255, 255)
                 : Windows.UI.Color.FromArgb(128, 0, 0, 0);
+        }
+    }
+
+    #endregion
+
+    #region Floating Mini Download Window
+
+    public void ShowFloatingWindow(TaskItemViewModel task)
+    {
+        if (!ViewModel.EnableFloatingWindow) return;
+
+        if (_floatingWindow is null)
+        {
+            _floatingWindow = new FloatingDownloadWindow(ViewModel);
+            if (this.Content is FrameworkElement root)
+            {
+                _floatingWindow.SetTheme(root.ActualTheme);
+            }
+            _floatingWindow.Closed += (s, e) => _floatingWindow = null;
+        }
+
+        _floatingWindow.BindTask(task);
+        _floatingWindow.Activate();
+    }
+
+    private void OnTaskNotificationTriggered(TaskItemViewModel task)
+    {
+        if (ViewModel.EnableFloatingWindow && IsMainWindowMinimizedOrBackground())
+        {
+            DispatcherQueue.TryEnqueue(() => ShowFloatingWindow(task));
+        }
+    }
+
+    private void AppWindow_Changed(AppWindow sender, AppWindowChangedEventArgs args)
+    {
+        if (AppWindow.Presenter is OverlappedPresenter op && op.State == OverlappedPresenterState.Minimized)
+        {
+            if (ViewModel.EnableFloatingWindow)
+            {
+                var activeTask = ViewModel.Tasks.FirstOrDefault(t => t.IsActive);
+                if (activeTask != null)
+                {
+                    DispatcherQueue.TryEnqueue(() => ShowFloatingWindow(activeTask));
+                }
+            }
+        }
+    }
+
+    private bool IsMainWindowMinimizedOrBackground()
+    {
+        if (AppWindow.Presenter is OverlappedPresenter op && op.State == OverlappedPresenterState.Minimized)
+        {
+            return true;
+        }
+
+        var hwnd = WindowNative.GetWindowHandle(this);
+        if (IsIconic(hwnd))
+        {
+            return true;
+        }
+
+        var fgHwnd = GetForegroundWindow();
+        return fgHwnd != hwnd;
+    }
+
+    private void FloatingWindowButton_Click(object sender, RoutedEventArgs e)
+    {
+        var target = ViewModel.SelectedTask 
+                     ?? ViewModel.Tasks.FirstOrDefault(t => t.IsActive) 
+                     ?? ViewModel.Tasks.FirstOrDefault();
+        if (target != null)
+        {
+            ShowFloatingWindow(target);
+        }
+        else
+        {
+            ViewModel.StatusMessage = "Nessun download disponibile da mostrare nella finestra mini.";
         }
     }
 
