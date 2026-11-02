@@ -2,7 +2,7 @@
 #define MyAppName "Getly"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "Getly Open Source"
-#define MyAppURL "https://github.com/getly-downloader/getly"
+#define MyAppURL "https://github.com/Cipr3sso/Getly"
 #define MyAppExeName "Getly.exe"
 
 [Setup]
@@ -34,7 +34,7 @@ Name: "autostart"; Description: "Avvia Getly all'accesso di Windows (ridotto a i
 [Files]
 Source: "dist\Getly\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "assets\app_icon.ico"; DestDir: "{app}\assets"; Flags: ignoreversion
-Source: "extension\*"; DestDir: "{app}\extension"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "extensions\chrome\*"; DestDir: "{app}\extension"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\app_icon.ico"

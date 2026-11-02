@@ -41,29 +41,59 @@ public sealed class EngineSupervisor : IDisposable
             return true;
         }
 
-        string repoRoot = FindRepositoryRoot();
-        string pythonExe = FindPythonExecutable(repoRoot);
-        string engineScript = Path.Combine(repoRoot, "engine_service.py");
+        ProcessStartInfo startInfo;
 
-        if (!File.Exists(engineScript))
+        // 1. Production check: Standalone compiled engine (GetlyEngine.exe)
+        string engineInSubdir = Path.Combine(AppContext.BaseDirectory, "engine", "GetlyEngine.exe");
+        string engineInNamedSubdir = Path.Combine(AppContext.BaseDirectory, "GetlyEngine", "GetlyEngine.exe");
+        string engineInRoot = Path.Combine(AppContext.BaseDirectory, "GetlyEngine.exe");
+        string? compiledEngine = File.Exists(engineInSubdir) 
+            ? engineInSubdir 
+            : (File.Exists(engineInNamedSubdir) 
+                ? engineInNamedSubdir 
+                : (File.Exists(engineInRoot) ? engineInRoot : null));
+
+        if (compiledEngine is not null)
         {
-            throw new FileNotFoundException($"Impossibile trovare l'entrypoint headless: {engineScript}");
+            startInfo = new ProcessStartInfo
+            {
+                FileName = compiledEngine,
+                Arguments = $"--pipe \"{PipeName}\"",
+                WorkingDirectory = Path.GetDirectoryName(compiledEngine) ?? AppContext.BaseDirectory,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                ErrorDialog = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
         }
-
-        var startInfo = new ProcessStartInfo
+        else
         {
-            FileName = pythonExe,
-            Arguments = $"\"{engineScript}\" --pipe \"{PipeName}\"",
-            WorkingDirectory = repoRoot,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            ErrorDialog = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
+            // 2. Development fallback: Run engine_service.py with Python
+            string repoRoot = FindRepositoryRoot();
+            string pythonExe = FindPythonExecutable(repoRoot);
+            string engineScript = Path.Combine(repoRoot, "engine_service.py");
 
-        startInfo.EnvironmentVariables["PYTHONUNBUFFERED"] = "1";
-        startInfo.EnvironmentVariables["PYTHONPATH"] = repoRoot;
+            if (!File.Exists(engineScript))
+            {
+                throw new FileNotFoundException($"Impossibile trovare l'entrypoint headless: {engineScript}");
+            }
+
+            startInfo = new ProcessStartInfo
+            {
+                FileName = pythonExe,
+                Arguments = $"\"{engineScript}\" --pipe \"{PipeName}\"",
+                WorkingDirectory = repoRoot,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                ErrorDialog = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+
+            startInfo.EnvironmentVariables["PYTHONUNBUFFERED"] = "1";
+            startInfo.EnvironmentVariables["PYTHONPATH"] = repoRoot;
+        }
 
         var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
 

@@ -1,9 +1,10 @@
 """
 Build and Packaging System for Getly.
 Generates:
-1. HD Brand Icons (assets/app_icon.ico, assets/app_icon.png, extension/icons/)
-2. Compiled Application Directory (dist/Getly/Getly.exe)
-3. Windows Setup Installer (dist/Getly_Setup.exe) via Inno Setup or native UAC bootstrapper
+1. HD Brand Icons (assets/app_icon.ico, assets/app_icon.png, extensions/chrome/icons/)
+2. Compiled Python Headless Engine (dist/Getly/GetlyEngine/GetlyEngine.exe)
+3. Compiled WinUI 3 Desktop Application (dist/Getly/Getly.exe)
+4. Official Windows Setup Installer (dist/Getly_Setup.exe) via Inno Setup or native UAC bootstrapper
 """
 
 import os
@@ -18,11 +19,12 @@ from ui.icon_generator import ensure_app_icons
 PROJECT_ROOT = Path(__file__).resolve().parent
 DIST_DIR = PROJECT_ROOT / "dist"
 BUILD_DIR = PROJECT_ROOT / "build"
+GETLY_DIST_DIR = DIST_DIR / "Getly"
 
 
 def step_1_generate_icons():
     print("=" * 70)
-    print("[1/3] GENERAZIONE ICONE ALTA DEFINIZIONE GETLY")
+    print("[1/4] GENERAZIONE ICONE ALTA DEFINIZIONE GETLY")
     print("=" * 70)
     icons = ensure_app_icons(project_root=PROJECT_ROOT, force=True)
     ico_path = icons.get("ico")
@@ -32,42 +34,101 @@ def step_1_generate_icons():
     return ico_path
 
 
-def step_2_build_pyinstaller(ico_path: Path):
+def step_2_build_engine(ico_path: Path):
     print("\n" + "=" * 70)
-    print("[2/3] COMPILAZIONE APPLICAZIONE CON PYINSTALLER (--onedir)")
+    print("[2/4] COMPILAZIONE MOTORE HEADLESS (PyInstaller --onedir)")
     print("=" * 70)
+
+    # Clean existing engine build if any
+    engine_dist = GETLY_DIST_DIR / "GetlyEngine"
+    if engine_dist.exists():
+        shutil.rmtree(engine_dist, ignore_errors=True)
 
     cmd = [
         sys.executable,
         "-m",
         "PyInstaller",
-        "--name=Getly",
+        "--name=GetlyEngine",
+        "--onedir",
         "--windowed",
         "--noconfirm",
         "--clean",
         f"--icon={ico_path}",
-        "--add-data=assets;assets",
-        "--add-data=extension;extension",
+        "--add-data=core;core",
+        "--add-data=config;config",
         "--hidden-import=libtorrent",
+        "--hidden-import=curl_cffi",
+        "--hidden-import=aiohttp",
         "--hidden-import=quickjs",
         "--hidden-import=bs4",
-        "--hidden-import=pystray",
-        "--hidden-import=PIL",
-        "--collect-all=flet",
-        "--collect-all=flet_desktop",
-        "main.py",
+        "--hidden-import=cryptography",
+        f"--distpath={GETLY_DIST_DIR}",
+        "engine_service.py",
     ]
 
-    print("Esecuzione comando PyInstaller:\n" + " ".join(cmd) + "\n")
+    print("Esecuzione comando PyInstaller per GetlyEngine:\n" + " ".join(cmd) + "\n")
     res = subprocess.run(cmd, cwd=str(PROJECT_ROOT))
     if res.returncode != 0:
         raise RuntimeError(f"PyInstaller build failed with exit code {res.returncode}")
 
-    target_exe = DIST_DIR / "Getly" / "Getly.exe"
+    target_exe = engine_dist / "GetlyEngine.exe"
     if not target_exe.exists():
-        raise FileNotFoundError(f"Expected compiled executable not found at {target_exe}")
+        raise FileNotFoundError(f"Expected compiled engine executable not found at {target_exe}")
 
-    print(f"\n[+] Compilazione completata con successo: {target_exe}")
+    print(f"\n[+] Motore compilato con successo: {target_exe}")
+    return target_exe
+
+
+def step_3_build_frontend(ico_path: Path):
+    print("\n" + "=" * 70)
+    print("[3/4] COMPILAZIONE FRONTEND WINUI 3 (.NET 8 Release x64)")
+    print("=" * 70)
+
+    dotnet_exe = shutil.which("dotnet") or r"C:\Users\carlo\.dotnet\dotnet.exe"
+    if not os.path.exists(dotnet_exe):
+        raise FileNotFoundError("dotnet CLI non trovato!")
+
+    cmd = [
+        dotnet_exe,
+        "publish",
+        "src/Getly.UI",
+        "-c",
+        "Release",
+        "-r",
+        "win-x64",
+        "--self-contained",
+        "true",
+        "-p:PublishSingleFile=false",
+        "-p:AssemblyName=Getly",
+        "-o",
+        str(GETLY_DIST_DIR),
+    ]
+
+    print("Esecuzione compilazione .NET WinUI 3:\n" + " ".join(cmd) + "\n")
+    res = subprocess.run(cmd, cwd=str(PROJECT_ROOT))
+    if res.returncode != 0:
+        raise RuntimeError(f".NET publish failed with exit code {res.returncode}")
+
+    target_exe = GETLY_DIST_DIR / "Getly.exe"
+    if not target_exe.exists():
+        raise FileNotFoundError(f"Expected compiled WinUI 3 executable not found at {target_exe}")
+
+    # Copy assets and extensions to distribution
+    assets_dest = GETLY_DIST_DIR / "assets"
+    assets_dest.mkdir(parents=True, exist_ok=True)
+    if (PROJECT_ROOT / "assets" / "app_icon.ico").exists():
+        shutil.copy2(PROJECT_ROOT / "assets" / "app_icon.ico", assets_dest / "app_icon.ico")
+    if (PROJECT_ROOT / "assets" / "app_icon.png").exists():
+        shutil.copy2(PROJECT_ROOT / "assets" / "app_icon.png", assets_dest / "app_icon.png")
+
+    ext_dest = GETLY_DIST_DIR / "extension"
+    ext_src = PROJECT_ROOT / "extensions" / "chrome"
+    if ext_src.exists():
+        if ext_dest.exists():
+            shutil.rmtree(ext_dest, ignore_errors=True)
+        shutil.copytree(ext_src, ext_dest)
+
+    print(f"\n[+] Frontend WinUI 3 compilato con successo: {target_exe}")
     return target_exe
 
 
@@ -81,6 +142,7 @@ def find_inno_setup_compiler() -> Path | None:
         r"C:\Program Files (x86)\Inno Setup 5\ISCC.exe",
         r"C:\Program Files\Inno Setup 5\ISCC.exe",
         os.path.expandvars(r"%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe"),
+        os.path.expandvars(r"%USERPROFILE%\AppData\Local\Programs\Inno Setup 6\ISCC.exe"),
     ]
     for c in candidates:
         if c and Path(c).is_file():
@@ -88,9 +150,9 @@ def find_inno_setup_compiler() -> Path | None:
     return None
 
 
-def step_3_build_installer(ico_path: Path):
+def step_4_build_installer(ico_path: Path):
     print("\n" + "=" * 70)
-    print("[3/3] GENERAZIONE INSTALLER WINDOWS (Getly_Setup.exe)")
+    print("[4/4] GENERAZIONE INSTALLER WINDOWS (Getly_Setup.exe)")
     print("=" * 70)
 
     iscc_path = find_inno_setup_compiler()
@@ -107,7 +169,7 @@ def step_3_build_installer(ico_path: Path):
 
     # Fallback to native bootstrapper installer
     print("Compilazione installer standalone nativo (UAC Elevated Bootstrapper)...")
-    getly_dir = DIST_DIR / "Getly"
+    getly_dir = GETLY_DIST_DIR
     payload_zip = DIST_DIR / "payload.zip"
 
     print(f"Creazione archivio payload: {payload_zip}...")
@@ -145,16 +207,19 @@ def step_3_build_installer(ico_path: Path):
 
 
 def main():
+    DIST_DIR.mkdir(parents=True, exist_ok=True)
     ico_path = step_1_generate_icons()
-    step_2_build_pyinstaller(ico_path)
-    setup_path = step_3_build_installer(ico_path)
+    step_2_build_engine(ico_path)
+    step_3_build_frontend(ico_path)
+    setup_path = step_4_build_installer(ico_path)
 
     print("\n" + "=" * 70)
     print("RIEPILOGO DISTRIBUZIONE GETLY")
     print("=" * 70)
-    print(f"1. Cartella Applicazione Compilata: {DIST_DIR / 'Getly'}")
-    print(f"2. File Eseguibile Principale:      {DIST_DIR / 'Getly' / 'Getly.exe'}")
-    print(f"3. Installer Ufficiale Windows:     {setup_path}")
+    print(f"1. Cartella Applicazione Compilata: {GETLY_DIST_DIR}")
+    print(f"2. File Eseguibile WinUI 3:        {GETLY_DIST_DIR / 'Getly.exe'}")
+    print(f"3. Motore Headless Compilato:      {GETLY_DIST_DIR / 'GetlyEngine' / 'GetlyEngine.exe'}")
+    print(f"4. Installer Ufficiale Windows:     {setup_path}")
     print("=" * 70)
 
 
