@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Getly Downloader</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="brand">
+        <img src="icons/icon32.png" alt="Getly" class="logo" />
+        <div class="brand-text">
+          <span class="brand-title">Getly</span>
+          <span class="brand-subtitle">Download Manager</span>
+        </div>
+      </div>
+      <div id="statusBadge" class="status-badge offline">
+        <span class="status-dot"></span>
+        <span id="statusText" class="status-label">Offline</span>
+      </div>
+    </header>
+
+    <!-- Download Interception Toggle Card -->
+    <section class="card toggle-card">
+      <div class="card-info">
+        <span class="card-title">Cattura download del browser</span>
+        <span class="card-desc">Intercetta i download nativi e li accelera con Getly.</span>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="interceptionToggle" checked />
+        <span class="slider"></span>
+      </label>
+    </section>
+
+    <!-- Video & Media Sniffer Section -->
+    <section class="media-section">
+      <div class="section-header">
+        <div class="section-title">
+          <span>Media rilevati nella pagina</span>
+          <span id="mediaCountBadge" class="count-badge">0</span>
+        </div>
+        <button id="clearMediaBtn" class="icon-btn" title="Pulisci lista media">🗑</button>
+      </div>
+
+      <!-- Media List Container -->
+      <div id="mediaList" class="media-list">
+        <!-- Dynamically populated or empty state -->
+        <div id="emptyMedia" class="empty-state">
+          <span class="empty-icon">🎬</span>
+          <p class="empty-text">Nessun flusso video o audio rilevato.<br>Avvia la riproduzione per intercettarlo.</p>
+        </div>
+      </div>
+
+      <!-- Bulk Download Action Button -->
+      <div id="bulkActions" class="bulk-actions hidden">
+        <button id="downloadAllBtn" class="btn btn-primary">
+          ⬇ Scarica tutti i media rilevati
+        </button>
+      </div>
+    </section>
+
+    <!-- Toast Notification Banner -->
+    <div id="toast" class="toast hidden"></div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

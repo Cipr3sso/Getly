@@ -19,6 +19,7 @@ import sys
 import time
 
 from config.settings import settings
+from core.api.local_server import LocalHttpServer
 from core.cnl.models import CNLDecryptedPackage
 from core.cnl.server import CNLServer
 from core.extensions.manager import ExtensionManager
@@ -153,14 +154,14 @@ async def run_engine_service(download_dir: Path, port: int, pipe_name: str) -> N
             category=data.get("category"),
         )
 
-    cnl_server = CNLServer(
+    local_http_server = LocalHttpServer(
         host=settings.cnl.host,
         port=port,
         on_package_received=on_cnl_package,
         on_download_requested=on_download_req,
     )
-    await cnl_server.start()
-    logger.info("CNL2 Server in ascolto su http://%s:%d/flash/check", settings.cnl.host, port)
+    await local_http_server.start()
+    logger.info("Local HTTP Server (API & CNL2) in ascolto su http://%s:%d (health: /health, add: /add)", settings.cnl.host, port)
 
     # 4. IPC Pipe Server & 10 Hz Telemetry Dispatcher
     pipe_server = NamedPipeServer(
@@ -202,7 +203,7 @@ async def run_engine_service(download_dir: Path, port: int, pipe_name: str) -> N
         logger.info("Arresto componenti in corso...")
         await telemetry.stop()
         await pipe_server.stop()
-        await cnl_server.stop()
+        await local_http_server.stop()
         await queue_manager.stop()
 
         # Close libtorrent session if active
