@@ -28,8 +28,9 @@ function getBaseDomain(hostname) {
 }
 
 /**
- * Extracts full cookie header querying URL origin, target URL, and base domain
- * to capture essential Cloudflare tokens (cf_clearance, __cf_bm, session cookies).
+ * Extracts full cookie header querying URL origin, target URL, and base domain,
+ * including Partitioned cookies (CHIPS / partitionKey: {}) to capture essential
+ * Cloudflare tokens (cf_clearance, __cf_bm, session cookies) in modern Chromium.
  */
 async function extractFullCookieHeader(targetUrl, referrerUrl) {
   const cookieMap = new Map();
@@ -43,46 +44,69 @@ async function extractFullCookieHeader(targetUrl, referrerUrl) {
     }
   };
 
+  const queryWithPartitions = async (filter) => {
+    try {
+      // 1. Try with partitionKey: {} (captures CHIPS partitioned cookies like cf_clearance in Chrome 120+)
+      const partitioned = await chrome.cookies.getAll({ ...filter, partitionKey: {} });
+      addCookies(partitioned);
+    } catch (_) {}
+    try {
+      // 2. Also try standard unpartitioned
+      const standard = await chrome.cookies.getAll(filter);
+      addCookies(standard);
+    } catch (_) {}
+  };
+
   try {
-    // 1. Target URL direct, origin, and base domain
+    // 1. Target URL direct & origin
     if (targetUrl && (targetUrl.startsWith("http://") || targetUrl.startsWith("https://"))) {
-      const urlCookies = await chrome.cookies.getAll({ url: targetUrl });
-      addCookies(urlCookies);
+      await queryWithPartitions({ url: targetUrl });
 
       try {
         const parsedTarget = new URL(targetUrl);
-        const originCookies = await chrome.cookies.getAll({ url: parsedTarget.origin });
-        addCookies(originCookies);
+        await queryWithPartitions({ url: parsedTarget.origin });
 
         const baseDomain = getBaseDomain(parsedTarget.hostname);
         if (baseDomain) {
-          const domainCookies = await chrome.cookies.getAll({ domain: baseDomain });
-          addCookies(domainCookies);
-          const dotDomainCookies = await chrome.cookies.getAll({ domain: `.${baseDomain}` });
-          addCookies(dotDomainCookies);
+          await queryWithPartitions({ domain: baseDomain });
         }
       } catch (_) {}
     }
 
-    // 2. Referrer URL direct, origin, and base domain
+    // 2. Referrer URL direct & origin
     if (referrerUrl && (referrerUrl.startsWith("http://") || referrerUrl.startsWith("https://"))) {
-      const refCookies = await chrome.cookies.getAll({ url: referrerUrl });
-      addCookies(refCookies);
+      await queryWithPartitions({ url: referrerUrl });
 
       try {
         const parsedRef = new URL(referrerUrl);
-        const refOriginCookies = await chrome.cookies.getAll({ url: parsedRef.origin });
-        addCookies(refOriginCookies);
+        await queryWithPartitions({ url: parsedRef.origin });
 
         const refBaseDomain = getBaseDomain(parsedRef.hostname);
         if (refBaseDomain) {
-          const refDomainCookies = await chrome.cookies.getAll({ domain: refBaseDomain });
-          addCookies(refDomainCookies);
-          const refDotCookies = await chrome.cookies.getAll({ domain: `.${refBaseDomain}` });
-          addCookies(refDotCookies);
+          await queryWithPartitions({ domain: refBaseDomain });
         }
       } catch (_) {}
     }
+
+    // 3. Global partitioned scan for domain & subdomains (handles .testfile.org, files.testfile.org, etc.)
+    try {
+      const parsed = targetUrl ? new URL(targetUrl) : (referrerUrl ? new URL(referrerUrl) : null);
+      if (parsed) {
+        const baseDomain = getBaseDomain(parsed.hostname);
+        if (baseDomain) {
+          const allPartitioned = await chrome.cookies.getAll({ partitionKey: {} });
+          const matched = allPartitioned.filter(c =>
+            c.domain && (
+              c.domain === baseDomain ||
+              c.domain === `.${baseDomain}` ||
+              c.domain.endsWith(`.${baseDomain}`) ||
+              c.domain.includes(baseDomain)
+            )
+          );
+          addCookies(matched);
+        }
+      }
+    } catch (_) {}
   } catch (err) {
     console.warn("[Getly] extractFullCookieHeader error:", err);
   }

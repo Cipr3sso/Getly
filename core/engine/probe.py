@@ -214,6 +214,8 @@ class ResourceProbe:
                     custom_headers=custom_headers,
                 )
                 req_headers = sanitize_headers_for_impersonation(cf_headers)
+                if user_agent:
+                    req_headers["User-Agent"] = user_agent
                 logger.info("Attempting Cloudflare TLS impersonation probe (curl_cffi chrome) for %s", target_url)
                 async with CurlAsyncSession(impersonate="chrome") as curl_session:
                     curl_resp = await curl_session.get(target_url, headers=req_headers, stream=True, allow_redirects=True)

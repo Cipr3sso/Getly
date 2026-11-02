@@ -207,6 +207,8 @@ class ChunkWorker:
                             if HAVE_CURL_CFFI:
                                 try:
                                     req_headers = sanitize_headers_for_impersonation(headers)
+                                    if self.user_agent:
+                                        req_headers["User-Agent"] = self.user_agent
                                     async with CurlAsyncSession(impersonate="chrome") as curl_session:
                                         curl_resp = await curl_session.get(self.url, headers=req_headers, stream=True, allow_redirects=True)
                                         if curl_resp.status_code >= 400:

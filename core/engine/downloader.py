@@ -418,6 +418,8 @@ class DownloadEngine:
             cf_headers.pop("Range", None)
             cf_headers.pop("range", None)
             req_headers = sanitize_headers_for_impersonation(cf_headers)
+            if self.user_agent:
+                req_headers["User-Agent"] = self.user_agent
 
             await self.host_coordinator.wait_if_blocked(self.host)
             async with self.host_coordinator.connection_slot(self.host):
