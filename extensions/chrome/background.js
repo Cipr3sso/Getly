@@ -12,6 +12,87 @@ let interceptionEnabled = true;
 // Map<tabId, Array<MediaItem>>
 const mediaByTab = new Map();
 
+/**
+ * Extracts root/base domain for capturing wildcard & Cloudflare cookies (e.g. .testfile.org).
+ */
+function getBaseDomain(hostname) {
+  if (!hostname) return "";
+  const cleanHost = hostname.toLowerCase();
+  const parts = cleanHost.split(".");
+  if (parts.length <= 2) return cleanHost;
+  const secondLevelTLDs = ["co", "com", "net", "org", "edu", "gov", "mil"];
+  if (parts.length > 2 && secondLevelTLDs.includes(parts[parts.length - 2])) {
+    return parts.slice(-3).join(".");
+  }
+  return parts.slice(-2).join(".");
+}
+
+/**
+ * Extracts full cookie header querying URL origin, target URL, and base domain
+ * to capture essential Cloudflare tokens (cf_clearance, __cf_bm, session cookies).
+ */
+async function extractFullCookieHeader(targetUrl, referrerUrl) {
+  const cookieMap = new Map();
+
+  const addCookies = (cookies) => {
+    if (!cookies || !Array.isArray(cookies)) return;
+    for (const c of cookies) {
+      if (c && c.name && c.value !== undefined && !cookieMap.has(c.name)) {
+        cookieMap.set(c.name, c.value);
+      }
+    }
+  };
+
+  try {
+    // 1. Target URL direct, origin, and base domain
+    if (targetUrl && (targetUrl.startsWith("http://") || targetUrl.startsWith("https://"))) {
+      const urlCookies = await chrome.cookies.getAll({ url: targetUrl });
+      addCookies(urlCookies);
+
+      try {
+        const parsedTarget = new URL(targetUrl);
+        const originCookies = await chrome.cookies.getAll({ url: parsedTarget.origin });
+        addCookies(originCookies);
+
+        const baseDomain = getBaseDomain(parsedTarget.hostname);
+        if (baseDomain) {
+          const domainCookies = await chrome.cookies.getAll({ domain: baseDomain });
+          addCookies(domainCookies);
+          const dotDomainCookies = await chrome.cookies.getAll({ domain: `.${baseDomain}` });
+          addCookies(dotDomainCookies);
+        }
+      } catch (_) {}
+    }
+
+    // 2. Referrer URL direct, origin, and base domain
+    if (referrerUrl && (referrerUrl.startsWith("http://") || referrerUrl.startsWith("https://"))) {
+      const refCookies = await chrome.cookies.getAll({ url: referrerUrl });
+      addCookies(refCookies);
+
+      try {
+        const parsedRef = new URL(referrerUrl);
+        const refOriginCookies = await chrome.cookies.getAll({ url: parsedRef.origin });
+        addCookies(refOriginCookies);
+
+        const refBaseDomain = getBaseDomain(parsedRef.hostname);
+        if (refBaseDomain) {
+          const refDomainCookies = await chrome.cookies.getAll({ domain: refBaseDomain });
+          addCookies(refDomainCookies);
+          const refDotCookies = await chrome.cookies.getAll({ domain: `.${refBaseDomain}` });
+          addCookies(refDotCookies);
+        }
+      } catch (_) {}
+    }
+  } catch (err) {
+    console.warn("[Getly] extractFullCookieHeader error:", err);
+  }
+
+  if (cookieMap.size === 0) return "";
+  return Array.from(cookieMap.entries())
+    .map(([k, v]) => `${k}=${v}`)
+    .join("; ");
+}
+
 // ---------------------------------------------------------------------------
 // 1. Settings Initialization & State Sync
 // ---------------------------------------------------------------------------
@@ -112,50 +193,32 @@ chrome.downloads.onCreated.addListener(async (downloadItem) => {
   // Extract preliminary file size reported by the browser (if known and > 0)
   const fileSize = downloadItem.fileSize && downloadItem.fileSize > 0 ? downloadItem.fileSize : null;
 
-  // Referer resolution
-  let referrer = downloadItem.referrer || "";
-  if (!referrer) {
+  // Effective Referer resolution: prioritize downloadItem.referrer, then active tab URL, then URL origin
+  let effectiveReferer = downloadItem.referrer || "";
+  if (!effectiveReferer) {
     try {
       const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (activeTab && activeTab.url && activeTab.url.startsWith("http")) {
-        referrer = activeTab.url;
+        effectiveReferer = activeTab.url;
       }
     } catch (_) {}
   }
-
-  // Collect session cookies for target url and referrer domain (e.g. Cloudflare cf_clearance)
-  let cookieString = "";
-  try {
-    const cookieMap = new Map();
-    const urlCookies = await chrome.cookies.getAll({ url: url });
-    if (urlCookies && urlCookies.length > 0) {
-      urlCookies.forEach((c) => cookieMap.set(c.name, c.value));
-    }
-    if (referrer && referrer.startsWith("http")) {
-      const refCookies = await chrome.cookies.getAll({ url: referrer });
-      if (refCookies && refCookies.length > 0) {
-        refCookies.forEach((c) => {
-          if (!cookieMap.has(c.name)) {
-            cookieMap.set(c.name, c.value);
-          }
-        });
-      }
-    }
-    if (cookieMap.size > 0) {
-      cookieString = Array.from(cookieMap.entries())
-        .map(([k, v]) => `${k}=${v}`)
-        .join("; ");
-    }
-  } catch (err) {
-    console.warn("[Getly] Could not read cookies:", err);
+  if (!effectiveReferer && url) {
+    try {
+      const parsed = new URL(url);
+      effectiveReferer = `${parsed.origin}/`;
+    } catch (_) {}
   }
+
+  // Collect session & Cloudflare cookies (cf_clearance on base domain and origin)
+  const cookieString = await extractFullCookieHeader(url, effectiveReferer);
 
   const payload = {
     url: url,
     filename: filename || "",
     file_size: fileSize,
     headers: {
-      Referer: referrer,
+      Referer: effectiveReferer,
       "User-Agent": navigator.userAgent,
       Cookie: cookieString,
       Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
@@ -372,29 +435,35 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     const targetUrl = info.linkUrl || info.srcUrl;
     if (!targetUrl) return;
 
-    let cookieString = "";
-    try {
-      const cookies = await chrome.cookies.getAll({ url: targetUrl });
-      if (cookies && cookies.length > 0) {
-        cookieString = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
-      }
-    } catch (_) {}
+    let effectiveReferer = tab?.url || "";
+    if (!effectiveReferer && targetUrl.startsWith("http")) {
+      try {
+        const parsed = new URL(targetUrl);
+        effectiveReferer = `${parsed.origin}/`;
+      } catch (_) {}
+    }
+
+    const cookieString = await extractFullCookieHeader(targetUrl, effectiveReferer);
 
     const payload = {
       url: targetUrl,
       headers: {
-        Referer: tab?.url || "",
+        Referer: effectiveReferer,
         "User-Agent": navigator.userAgent,
         Cookie: cookieString,
       },
       category: detectCategory(targetUrl, ""),
+      auto_start: true,
     };
 
     fetch(`${GETLY_API_BASE}/add`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
-    }).catch((err) => console.warn("[Getly ContextMenu] Failed:", err));
+    }).catch((err) => {
+      console.warn("[Getly ContextMenu] Failed, falling back to browser download:", err);
+      chrome.downloads.download({ url: targetUrl });
+    });
   } else if (info.menuItemId === "getly-download-all-media" && tab?.id) {
     const tabMedia = mediaByTab.get(tab.id) || [];
     for (const item of tabMedia) {
@@ -404,23 +473,27 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 });
 
 async function sendMediaToGetly(mediaItem, refererUrl) {
-  let cookieString = "";
-  try {
-    const cookies = await chrome.cookies.getAll({ url: mediaItem.url });
-    if (cookies && cookies.length > 0) {
-      cookieString = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
-    }
-  } catch (_) {}
+  let effectiveReferer = refererUrl || "";
+  if (!effectiveReferer && mediaItem.url.startsWith("http")) {
+    try {
+      const parsed = new URL(mediaItem.url);
+      effectiveReferer = `${parsed.origin}/`;
+    } catch (_) {}
+  }
+
+  const cookieString = await extractFullCookieHeader(mediaItem.url, effectiveReferer);
 
   const payload = {
     url: mediaItem.url,
     filename: mediaItem.filename,
     category: "Video",
     headers: {
-      Referer: refererUrl || "",
+      Referer: effectiveReferer,
       "User-Agent": navigator.userAgent,
       Cookie: cookieString,
     },
+    file_size: mediaItem.sizeBytes > 0 ? mediaItem.sizeBytes : null,
+    auto_start: true,
   };
 
   return fetch(`${GETLY_API_BASE}/add`, {
