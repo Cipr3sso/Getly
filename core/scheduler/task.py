@@ -8,6 +8,8 @@ import uuid
 
 class DownloadStatus(str, Enum):
     PENDING = "PENDING"
+    WAITING = "WAITING"
+    PENDING_CONFIRMATION = "PENDING_CONFIRMATION"
     DOWNLOADING = "DOWNLOADING"
     PAUSED = "PAUSED"
     COMPLETED = "COMPLETED"

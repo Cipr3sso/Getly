@@ -98,6 +98,7 @@ class QueueManager:
         user_agent: Optional[str] = None,
         category: Optional[str] = None,
         start_paused: bool = False,
+        auto_start: Optional[bool] = None,
         task_type: Optional[str] = None,
         selected_files: Optional[List[int]] = None,
         info_hash: Optional[str] = None,
@@ -199,7 +200,12 @@ class QueueManager:
 
         dest.mkdir(parents=True, exist_ok=True)
 
-        initial_status = DownloadStatus.PAUSED if start_paused else DownloadStatus.PENDING
+        if auto_start is False:
+            initial_status = DownloadStatus.WAITING
+        elif start_paused:
+            initial_status = DownloadStatus.PAUSED
+        else:
+            initial_status = DownloadStatus.PENDING
 
         task = DownloadTask(
             url=url,
@@ -221,9 +227,11 @@ class QueueManager:
         self.state_store.save_task(task)
         self._tasks[task.task_id] = task
 
-        if not start_paused:
+        if initial_status == DownloadStatus.PENDING:
             await self._task_queue.put(task)
             logger.info("Queued task %s [%s] for URL: %s in category %s (dest: %s)", task.task_id, resolved_task_type, url, task_category, dest)
+        elif initial_status == DownloadStatus.WAITING:
+            logger.info("Added task %s [%s] in WAITING (pending confirmation) state for URL: %s in category %s (dest: %s)", task.task_id, resolved_task_type, url, task_category, dest)
         else:
             logger.info("Added task %s [%s] in PAUSED state for URL: %s in category %s (dest: %s)", task.task_id, resolved_task_type, url, task_category, dest)
 

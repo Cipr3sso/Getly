@@ -100,6 +100,12 @@ class LocalHttpServer(CNLServer):
             if "?" in clean_filename:
                 clean_filename = clean_filename.split("?")[0]
 
+        auto_start = data.get("auto_start", False)
+        if isinstance(auto_start, str):
+            auto_start = auto_start.lower() in ("true", "1", "yes")
+        elif not isinstance(auto_start, bool):
+            auto_start = False
+
         download_payload = {
             "url": url,
             "filename": clean_filename,
@@ -109,6 +115,7 @@ class LocalHttpServer(CNLServer):
             "referer": referer,
             "cookies": cookies,
             "user_agent": user_agent,
+            "auto_start": auto_start,
         }
 
         logger.info("Local HTTP server received /add: %s (filename: %s)", url, clean_filename)

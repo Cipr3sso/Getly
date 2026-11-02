@@ -176,3 +176,23 @@ async def test_clear_inactive_tasks(tmp_path: Path):
     assert t_pause_zero.task_id not in remaining_ids
     pending = store.get_pending_tasks()
     assert len(pending) == 2
+
+
+@pytest.mark.asyncio
+async def test_queue_manager_auto_start_false_and_confirmation(tmp_path: Path):
+    store = StateStore(tmp_path / "autostart.db")
+    pool = MultiInterfaceSessionPool(adapters=[NetworkAdapter(name="loop", ip="127.0.0.1")])
+    qm = QueueManager(session_pool=pool, state_store=store, default_download_dir=tmp_path)
+
+    # When auto_start=False, task is created in WAITING state without queueing
+    task = await qm.add_url("https://example.com/file.bin", filename="file.bin", auto_start=False)
+    assert task.status == DownloadStatus.WAITING
+    assert qm._task_queue.qsize() == 0
+
+    # Resuming task moves it to PENDING and queues it
+    await qm.resume_task(task.task_id)
+    assert task.status == DownloadStatus.PENDING
+    assert qm._task_queue.qsize() == 1
+    queued = await qm._task_queue.get()
+    assert queued.task_id == task.task_id
+

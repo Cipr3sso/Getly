@@ -207,7 +207,7 @@ public sealed partial class MainWindow : Window
             _floatingWindow.Closed += (s, e) => _floatingWindow = null;
         }
 
-        _floatingWindow.BindTask(task);
+        _floatingWindow.AddOrUpdateTask(task);
         _floatingWindow.Activate();
     }
 

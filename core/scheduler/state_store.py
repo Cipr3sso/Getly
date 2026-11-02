@@ -317,8 +317,14 @@ class StateStore:
         with self._get_connection() as conn:
             cursor = conn.execute(f"""
             SELECT {self._TASK_COLUMNS}
-            FROM tasks WHERE status IN (?, ?, ?) ORDER BY created_at ASC;
-            """, (DownloadStatus.PENDING.value, DownloadStatus.DOWNLOADING.value, DownloadStatus.PAUSED.value))
+            FROM tasks WHERE status IN (?, ?, ?, ?, ?) ORDER BY created_at ASC;
+            """, (
+                DownloadStatus.PENDING.value,
+                DownloadStatus.DOWNLOADING.value,
+                DownloadStatus.PAUSED.value,
+                DownloadStatus.WAITING.value,
+                DownloadStatus.PENDING_CONFIRMATION.value,
+            ))
             rows = cursor.fetchall()
 
         return [self._row_to_task(r) for r in rows]

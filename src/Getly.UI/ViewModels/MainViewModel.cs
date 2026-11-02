@@ -277,7 +277,7 @@ public partial class MainViewModel : ObservableObject
                     _taskIndex[newVm.TaskId] = newVm;
                     Tasks.Add(newVm);
                     listStructureChanged = true;
-                    if (newVm.IsActive)
+                    if (newVm.IsActive || newVm.IsPendingConfirmation)
                     {
                         TaskNotificationTriggered?.Invoke(newVm);
                     }

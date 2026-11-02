@@ -152,6 +152,7 @@ async def run_engine_service(download_dir: Path, port: int, pipe_name: str) -> N
             referer=data.get("referer"),
             user_agent=data.get("user_agent"),
             category=data.get("category"),
+            auto_start=data.get("auto_start", False),
         )
 
     local_http_server = LocalHttpServer(

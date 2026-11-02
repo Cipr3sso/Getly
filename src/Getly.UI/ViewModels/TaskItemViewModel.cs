@@ -73,6 +73,9 @@ public partial class TaskItemViewModel : ObservableObject
     private bool _isSelected;
 
     [ObservableProperty]
+    private bool _isPendingConfirmation;
+
+    [ObservableProperty]
     private string? _errorMessage;
 
     [ObservableProperty]
@@ -119,6 +122,9 @@ public partial class TaskItemViewModel : ObservableObject
         IsCompleted = string.Equals(dto.Status, "COMPLETED", StringComparison.OrdinalIgnoreCase);
         IsError = string.Equals(dto.Status, "FAILED", StringComparison.OrdinalIgnoreCase)
                   || string.Equals(dto.Status, "ERROR", StringComparison.OrdinalIgnoreCase);
+        IsPendingConfirmation = string.Equals(dto.Status, "WAITING", StringComparison.OrdinalIgnoreCase)
+                                || string.Equals(dto.Status, "PENDING_CONFIRMATION", StringComparison.OrdinalIgnoreCase)
+                                || (string.Equals(dto.Status, "PAUSED", StringComparison.OrdinalIgnoreCase) && dto.DownloadedBytes == 0 && Progress == 0);
 
         ErrorToolTip = !string.IsNullOrWhiteSpace(ErrorMessage)
             ? $"Errore: {ErrorMessage}"
@@ -151,6 +157,12 @@ public partial class TaskItemViewModel : ObservableObject
                 StatusDisplay = "Errore";
                 StatusColor = "#E81123"; // Red
                 StatusIconGlyph = "\uEB90"; // Error badge
+                break;
+            case "WAITING":
+            case "PENDING_CONFIRMATION":
+                StatusDisplay = "In attesa di conferma";
+                StatusColor = "#F59E0B"; // Amber
+                StatusIconGlyph = "\uE897"; // Download or hourglass badge
                 break;
             case "CANCELLED":
                 StatusDisplay = "Annullato";

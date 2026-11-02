@@ -283,4 +283,53 @@ public class IpcAndSupervisorTests : IDisposable
         Assert.NotNull(notifiedTask);
         Assert.Equal("test-floating-1", notifiedTask.TaskId);
     }
+
+    [Fact]
+    public void TaskItemViewModel_WaitingAndPendingConfirmation_SetsIsPendingConfirmation()
+    {
+        var waitingDto = new TaskItemDto
+        {
+            TaskId = "waiting-1",
+            Url = "https://example.com/waiting.iso",
+            Filename = "waiting.iso",
+            Status = "WAITING",
+            TotalSize = 50000,
+            DownloadedBytes = 0,
+            TaskType = "HTTP"
+        };
+        var waitingVm = new TaskItemViewModel(waitingDto);
+        Assert.True(waitingVm.IsPendingConfirmation);
+        Assert.Equal("In attesa di conferma", waitingVm.StatusDisplay);
+        Assert.Equal("#F59E0B", waitingVm.StatusColor);
+
+        var pendingConfirmDto = new TaskItemDto
+        {
+            TaskId = "pending-1",
+            Url = "https://example.com/pending.iso",
+            Filename = "pending.iso",
+            Status = "PENDING_CONFIRMATION",
+            TotalSize = 50000,
+            DownloadedBytes = 0,
+            TaskType = "HTTP"
+        };
+        var pendingConfirmVm = new TaskItemViewModel(pendingConfirmDto);
+        Assert.True(pendingConfirmVm.IsPendingConfirmation);
+        Assert.Equal("In attesa di conferma", pendingConfirmVm.StatusDisplay);
+
+        var errorDto = new TaskItemDto
+        {
+            TaskId = "error-1",
+            Url = "https://example.com/err.iso",
+            Filename = "err.iso",
+            Status = "FAILED",
+            ErrorMessage = "Connessione fallita - CDN",
+            TotalSize = 50000,
+            DownloadedBytes = 0,
+            TaskType = "HTTP"
+        };
+        var errorVm = new TaskItemViewModel(errorDto);
+        Assert.True(errorVm.IsError);
+        Assert.Equal("Connessione fallita - CDN", errorVm.ErrorMessage);
+        Assert.Contains("Connessione fallita - CDN", errorVm.ErrorToolTip);
+    }
 }

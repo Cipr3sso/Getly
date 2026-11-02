@@ -4,6 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:Getly.UI.ViewModels"
     Title="Getly Mini"
     mc:Ignorable="d">
 
@@ -19,17 +20,19 @@
             BorderThickness="1"
             CornerRadius="12"
             Padding="14,10,14,10">
-            <Grid RowSpacing="6">
+            <Grid>
                 <Grid.RowDefinitions>
                     <!-- Header -->
                     <RowDefinition Height="Auto" />
-                    <!-- Body Progress & Metrics -->
+                    <!-- Body (Progress, Error, or Confirmation Folder) -->
                     <RowDefinition Height="Auto" />
-                    <!-- Footer Actions -->
+                    <!-- Action Buttons -->
                     <RowDefinition Height="Auto" />
+                    <!-- Expanded Multi-Task List -->
+                    <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
-                <!-- 1. Header: File Icon, Draggable Region with Filename, Quick Close Button -->
+                <!-- 1. Header: File Icon, Draggable Region with Filename, Controls (Prev, Counter, Next, Expand, Close) -->
                 <Grid Grid.Row="0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
@@ -48,14 +51,28 @@
                         </StackPanel>
                     </Border>
 
-                    <Button Grid.Column="2" x:Name="CloseButton" Width="26" Height="26" Padding="0" Background="Transparent" BorderThickness="0" CornerRadius="4" Click="CloseButton_Click" ToolTipService.ToolTip="Chiudi finestra mini" VerticalAlignment="Center">
-                        <FontIcon Glyph="&#xE711;" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    </Button>
+                    <!-- Header Controls: Scroller (Prev/Counter/Next), Expand/Collapse, Close -->
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                        <Button x:Name="PrevTaskButton" Width="24" Height="26" Padding="0" Background="Transparent" BorderThickness="0" CornerRadius="4" Click="PrevTaskButton_Click" ToolTipService.ToolTip="Download precedente">
+                            <FontIcon Glyph="&#xE76B;" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </Button>
+                        <TextBlock x:Name="TaskCounterTextBlock" Text="1/1" FontSize="10" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" Margin="2,0,2,0" />
+                        <Button x:Name="NextTaskButton" Width="24" Height="26" Padding="0" Background="Transparent" BorderThickness="0" CornerRadius="4" Click="NextTaskButton_Click" ToolTipService.ToolTip="Download successivo">
+                            <FontIcon Glyph="&#xE76C;" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </Button>
+                        <Button x:Name="ExpandCollapseButton" Width="24" Height="26" Padding="0" Background="Transparent" BorderThickness="0" CornerRadius="4" Click="ExpandCollapseButton_Click" ToolTipService.ToolTip="Elenco download" Margin="2,0,0,0">
+                            <FontIcon x:Name="ExpandCollapseIcon" Glyph="&#xE70D;" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </Button>
+                        <Button x:Name="CloseButton" Width="24" Height="26" Padding="0" Background="Transparent" BorderThickness="0" CornerRadius="4" Click="CloseButton_Click" ToolTipService.ToolTip="Chiudi finestra mini" Margin="2,0,0,0">
+                            <FontIcon Glyph="&#xE711;" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </Button>
+                    </StackPanel>
                 </Grid>
 
-                <!-- 2. Body: Progress Text, ProgressBar (4px, CornerRadius 2), Speed & ETA -->
-                <StackPanel Grid.Row="1" Spacing="4">
-                    <Grid>
+                <!-- 2. Body -->
+                <StackPanel Grid.Row="1" Margin="0,6,0,0" Spacing="4">
+                    <!-- Standard Progress & Percentage -->
+                    <Grid x:Name="ProgressHeaderGrid">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
@@ -66,42 +83,165 @@
 
                     <ProgressBar x:Name="TaskProgressBar" Value="0" Maximum="100" Height="4" CornerRadius="2" Margin="0,1,0,1" Foreground="#3B82F6" Background="{ThemeResource LayerFillColorDefaultBrush}" />
 
+                    <!-- Metrics / Status Row -->
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+
+                        <!-- Live Speed & ETA (Normal) -->
+                        <StackPanel Grid.Column="0" x:Name="NormalSpeedPanel" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
                             <TextBlock x:Name="SpeedIconTextBlock" Text="⬇" FontSize="11" Foreground="#60A5FA" />
                             <TextBlock x:Name="SpeedTextBlock" Text="0 B/s" FontSize="11" FontWeight="Medium" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
                             <TextBlock Text="•" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Margin="2,0,2,0" />
                             <TextBlock Text="ETA:" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             <TextBlock x:Name="EtaTextBlock" Text="--:--" FontSize="11" FontWeight="Medium" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
                         </StackPanel>
+
+                        <!-- Error Message Panel (Red, fallback on failure) -->
+                        <StackPanel Grid.Column="0" x:Name="ErrorSpeedPanel" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Visibility="Collapsed">
+                            <FontIcon Glyph="&#xEB90;" FontSize="11" Foreground="#E81123" VerticalAlignment="Center" />
+                            <TextBlock x:Name="ErrorMessageTextBlock" Text="Connessione fallita - CDN" FontSize="11" FontWeight="Medium" Foreground="#E81123" TextTrimming="CharacterEllipsis" MaxLines="1" />
+                        </StackPanel>
+
                         <TextBlock Grid.Column="1" x:Name="StatusBadgeTextBlock" Text="In download" FontSize="10" FontWeight="SemiBold" Foreground="#3B82F6" VerticalAlignment="Center" />
+                    </Grid>
+
+                    <!-- Destination Path & Edit Folder Row (for Confirmation / Info) -->
+                    <Grid x:Name="DestinationRowGrid" Margin="0,2,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                            <FontIcon Glyph="&#xED25;" FontSize="10" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" />
+                            <TextBlock x:Name="DestinationPathTextBlock" Text="Cartella download" FontSize="10" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextTrimming="CharacterEllipsis" MaxWidth="240" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <HyperlinkButton Grid.Column="1" x:Name="ChangeFolderButton" Content="Modifica" FontSize="10" Padding="4,0" Margin="4,0,0,0" VerticalAlignment="Center" Click="ChangeFolderButton_Click" ToolTipService.ToolTip="Seleziona un'altra cartella" />
                     </Grid>
                 </StackPanel>
 
-                <!-- 3. Footer: Quick Actions -->
-                <Grid Grid.Row="2" Margin="0,2,0,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
+                <!-- 3. Actions Row: Either Standard Actions or Confirmation Actions -->
+                <Grid Grid.Row="2" Margin="0,6,0,0">
+                    <!-- Standard Actions (Pausa/Riprendi, Cartella / Riprova) -->
+                    <Grid x:Name="StandardActionsPanel">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
 
-                    <Button Grid.Column="0" x:Name="ActionButton1" Margin="0,0,4,0" HorizontalAlignment="Stretch" Height="30" Padding="8,0,8,0" CornerRadius="6" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" Click="ActionButton1_Click">
-                        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
-                            <FontIcon x:Name="ActionIcon1" Glyph="&#xE769;" FontSize="11" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-                            <TextBlock x:Name="ActionText1" Text="Pausa" FontSize="11" FontWeight="Medium" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-                        </StackPanel>
-                    </Button>
+                        <Button Grid.Column="0" x:Name="ActionButton1" Margin="0,0,4,0" HorizontalAlignment="Stretch" Height="30" Padding="8,0,8,0" CornerRadius="6" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" Click="ActionButton1_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                                <FontIcon x:Name="ActionIcon1" Glyph="&#xE769;" FontSize="11" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                                <TextBlock x:Name="ActionText1" Text="Pausa" FontSize="11" FontWeight="Medium" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                            </StackPanel>
+                        </Button>
 
-                    <Button Grid.Column="1" x:Name="ActionButton2" Margin="4,0,0,0" HorizontalAlignment="Stretch" Height="30" Padding="8,0,8,0" CornerRadius="6" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" Click="ActionButton2_Click">
-                        <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
-                            <FontIcon x:Name="ActionIcon2" Glyph="&#xED25;" FontSize="11" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-                            <TextBlock x:Name="ActionText2" Text="Cartella" FontSize="11" FontWeight="Medium" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-                        </StackPanel>
-                    </Button>
+                        <Button Grid.Column="1" x:Name="ActionButton2" Margin="4,0,0,0" HorizontalAlignment="Stretch" Height="30" Padding="8,0,8,0" CornerRadius="6" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" Click="ActionButton2_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                                <FontIcon x:Name="ActionIcon2" Glyph="&#xED25;" FontSize="11" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                                <TextBlock x:Name="ActionText2" Text="Cartella" FontSize="11" FontWeight="Medium" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <!-- Confirmation Actions (▶️ Avvia Ora, ⏱️ In Coda, ❌ Annulla) -->
+                    <Grid x:Name="ConfirmationActionsPanel" Visibility="Collapsed">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <Button Grid.Column="0" x:Name="StartNowButton" Margin="0,0,3,0" HorizontalAlignment="Stretch" Height="30" Padding="4,0,4,0" CornerRadius="6" Style="{StaticResource AccentButtonStyle}" Click="StartNowButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+                                <FontIcon Glyph="&#xE768;" FontSize="11" Foreground="White" />
+                                <TextBlock Text="Avvia Ora" FontSize="10" FontWeight="SemiBold" Foreground="White" />
+                            </StackPanel>
+                        </Button>
+
+                        <Button Grid.Column="1" x:Name="EnqueueButton" Margin="3,0,3,0" HorizontalAlignment="Stretch" Height="30" Padding="4,0,4,0" CornerRadius="6" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" Click="EnqueueButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+                                <FontIcon Glyph="&#xE823;" FontSize="11" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                                <TextBlock Text="In Coda" FontSize="10" FontWeight="Medium" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                            </StackPanel>
+                        </Button>
+
+                        <Button Grid.Column="2" x:Name="CancelTaskButton" Margin="3,0,0,0" HorizontalAlignment="Stretch" Height="30" Padding="4,0,4,0" CornerRadius="6" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" Click="CancelTaskButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+                                <FontIcon Glyph="&#xE711;" FontSize="10" Foreground="#E81123" />
+                                <TextBlock Text="Annulla" FontSize="10" FontWeight="Medium" Foreground="#E81123" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                </Grid>
+
+                <!-- 4. Expanded Multi-Task List Panel -->
+                <Grid x:Name="ExpandedListPanel" Grid.Row="3" Margin="0,8,0,0" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="125" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <!-- Divider -->
+                    <Border Grid.Row="0" Height="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" Margin="0,0,0,6" />
+
+                    <!-- Tasks ListView -->
+                    <ListView Grid.Row="1" x:Name="TasksListView" SelectionMode="Single" SelectionChanged="TasksListView_SelectionChanged" Padding="0" BorderThickness="0" Background="Transparent">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="vm:TaskItemViewModel">
+                                <Grid Height="34" Margin="0,1" Padding="4,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- CheckBox for batch selection -->
+                                    <CheckBox Grid.Column="0" IsChecked="{x:Bind IsSelected, Mode=TwoWay}" MinWidth="26" Margin="0,0,6,0" VerticalAlignment="Center" />
+
+                                    <!-- Filename & Category -->
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                                        <TextBlock Text="{x:Bind Filename}" FontSize="11" FontWeight="Medium" Foreground="{ThemeResource TextFillColorPrimaryBrush}" TextTrimming="CharacterEllipsis" MaxLines="1" />
+                                        <TextBlock Text="{x:Bind DownloadedFormatted}" FontSize="9" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+
+                                    <!-- Status / Progress Badge -->
+                                    <Border Grid.Column="2" Padding="6,2" CornerRadius="4" Background="{ThemeResource LayerFillColorDefaultBrush}" VerticalAlignment="Center" Margin="4,0,0,0">
+                                        <TextBlock Text="{x:Bind StatusDisplay}" FontSize="9" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </Border>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+
+                    <!-- Cumulative Actions Bar -->
+                    <Grid Grid.Row="2" Margin="0,6,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <CheckBox Grid.Column="0" x:Name="SelectAllCheckBox" Content="Tutti" FontSize="11" Margin="2,0,0,0" VerticalAlignment="Center" Click="SelectAllCheckBox_Click" />
+
+                        <Button Grid.Column="2" x:Name="StartSelectedButton" Margin="0,0,4,0" Height="26" Padding="8,2" CornerRadius="4" Style="{StaticResource AccentButtonStyle}" Click="StartSelectedButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <FontIcon Glyph="&#xE768;" FontSize="10" Foreground="White" />
+                                <TextBlock Text="Avvia" FontSize="10" FontWeight="SemiBold" Foreground="White" />
+                            </StackPanel>
+                        </Button>
+
+                        <Button Grid.Column="3" x:Name="DeleteSelectedButton" Height="26" Padding="8,2" CornerRadius="4" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" Click="DeleteSelectedButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <FontIcon Glyph="&#xE74D;" FontSize="10" Foreground="#E81123" />
+                                <TextBlock Text="Elimina" FontSize="10" FontWeight="Medium" Foreground="#E81123" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
                 </Grid>
             </Grid>
         </Border>

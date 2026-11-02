@@ -1,11 +1,16 @@
 using System;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Linq;
+using System.Threading.Tasks;
 using Getly.UI.ViewModels;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.Graphics;
+using Windows.Storage.Pickers;
+using WinRT.Interop;
 
 namespace Getly.UI.Views;
 
@@ -14,15 +19,21 @@ public sealed partial class FloatingDownloadWindow : Window
     private readonly MainViewModel _viewModel;
     private TaskItemViewModel? _currentTask;
     private DispatcherTimer? _autoCloseTimer;
+    private bool _isExpanded;
+
+    public ObservableCollection<TaskItemViewModel> MonitoredTasks { get; } = new();
+    public int CurrentIndex { get; private set; }
 
     public FloatingDownloadWindow(MainViewModel viewModel)
     {
         _viewModel = viewModel;
         InitializeComponent();
 
-        // 1. Configure OverlappedPresenter: Always on top, no borders, fixed size
-        var presenter = AppWindow.Presenter as OverlappedPresenter;
-        if (presenter != null)
+        // 1. Remove from Windows taskbar and Alt+Tab switcher (Floating Overlay Widget)
+        AppWindow.IsShownInSwitchers = false;
+
+        // 2. Configure OverlappedPresenter: Always on top, no standard borders, fixed size
+        if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.IsAlwaysOnTop = true;
             presenter.IsResizable = false;
@@ -31,14 +42,17 @@ public sealed partial class FloatingDownloadWindow : Window
             presenter.SetBorderAndTitleBar(false, false);
         }
 
-        // 2. Extends content into titlebar & enable dragging on header
+        // 3. Extends content into titlebar & enable dragging on header
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(DragRegion);
 
-        // 3. Position window at bottom-right above the taskbar
+        // 4. Bind ListView ItemsSource
+        TasksListView.ItemsSource = MonitoredTasks;
+
+        // 5. Position window at bottom-right above the taskbar
         PositionWindow();
 
-        // 4. Default dark theme
+        // 6. Default dark theme
         RootGrid.RequestedTheme = ElementTheme.Dark;
 
         // Cleanup on close
@@ -55,14 +69,16 @@ public sealed partial class FloatingDownloadWindow : Window
         try
         {
             int width = 380;
-            int height = 165;
+            int height = _isExpanded ? 340 : 165;
             AppWindow.Resize(new SizeInt32(width, height));
 
             var displayArea = DisplayArea.Primary;
             if (displayArea != null)
             {
                 int posX = displayArea.WorkArea.X + displayArea.WorkArea.Width - 400;
-                int posY = displayArea.WorkArea.Y + displayArea.WorkArea.Height - 185;
+                int posY = _isExpanded
+                    ? displayArea.WorkArea.Y + displayArea.WorkArea.Height - 360
+                    : displayArea.WorkArea.Y + displayArea.WorkArea.Height - 185;
                 AppWindow.Move(new PointInt32(posX, posY));
             }
         }
@@ -73,23 +89,69 @@ public sealed partial class FloatingDownloadWindow : Window
     }
 
     /// <summary>
-    /// Binds the floating window to a task, synchronizing UI updates with task property changes.
+    /// Adds or updates a task in the unified multi-download collection and focuses it.
+    /// </summary>
+    public void AddOrUpdateTask(TaskItemViewModel task)
+    {
+        int existingIndex = MonitoredTasks.IndexOf(task);
+        if (existingIndex < 0)
+        {
+            MonitoredTasks.Add(task);
+            CurrentIndex = MonitoredTasks.Count - 1;
+        }
+        else
+        {
+            CurrentIndex = existingIndex;
+        }
+
+        BindCurrentTask();
+        UpdateUI();
+    }
+
+    /// <summary>
+    /// Backward-compatibility alias for AddOrUpdateTask.
     /// </summary>
     public void BindTask(TaskItemViewModel task)
     {
-        if (_currentTask == task)
-        {
-            UpdateUI();
-            return;
-        }
+        AddOrUpdateTask(task);
+    }
 
+    private void BindCurrentTask()
+    {
         if (_currentTask != null)
         {
             _currentTask.PropertyChanged -= OnTaskPropertyChanged;
         }
 
-        _currentTask = task;
-        _currentTask.PropertyChanged += OnTaskPropertyChanged;
+        if (CurrentIndex >= 0 && CurrentIndex < MonitoredTasks.Count)
+        {
+            _currentTask = MonitoredTasks[CurrentIndex];
+            _currentTask.PropertyChanged += OnTaskPropertyChanged;
+        }
+        else
+        {
+            _currentTask = null;
+        }
+    }
+
+    private void RemoveTaskFromMonitoring(TaskItemViewModel task)
+    {
+        task.PropertyChanged -= OnTaskPropertyChanged;
+        MonitoredTasks.Remove(task);
+
+        if (MonitoredTasks.Count == 0)
+        {
+            _currentTask = null;
+            this.Close();
+            return;
+        }
+
+        if (CurrentIndex >= MonitoredTasks.Count)
+        {
+            CurrentIndex = MonitoredTasks.Count - 1;
+        }
+
+        BindCurrentTask();
         UpdateUI();
     }
 
@@ -100,31 +162,146 @@ public sealed partial class FloatingDownloadWindow : Window
 
     private void UpdateUI()
     {
+        // 1. Navigation Scroller & Counter
+        int totalCount = MonitoredTasks.Count;
+        TaskCounterTextBlock.Text = $"{CurrentIndex + 1}/{Math.Max(1, totalCount)}";
+        PrevTaskButton.IsEnabled = CurrentIndex > 0;
+        NextTaskButton.IsEnabled = CurrentIndex < totalCount - 1;
+
+        bool showNavigation = totalCount > 1;
+        PrevTaskButton.Visibility = showNavigation ? Visibility.Visible : Visibility.Collapsed;
+        TaskCounterTextBlock.Visibility = showNavigation ? Visibility.Visible : Visibility.Collapsed;
+        NextTaskButton.Visibility = showNavigation ? Visibility.Visible : Visibility.Collapsed;
+
         if (_currentTask is null) return;
 
         FileNameTextBlock.Text = !string.IsNullOrWhiteSpace(_currentTask.Filename) ? _currentTask.Filename : "Download";
         SourceUrlTextBlock.Text = _currentTask.Url ?? string.Empty;
+        DestinationPathTextBlock.Text = string.IsNullOrWhiteSpace(_currentTask.DestinationDir)
+            ? "Cartella predefinita"
+            : _currentTask.DestinationDir;
 
-        // Progress percentage
+        // Progress percentage & bar
         TaskProgressBar.Value = _currentTask.Progress;
         PercentageTextBlock.Text = _currentTask.ProgressPercentageFormatted;
 
-        // Size & progress text: "35.4 MB di 100 MB (35%)"
-        if (_currentTask.TotalSize > 0)
+        // 2. Pre-Download Confirmation Flow (Waiting / Pending Confirmation)
+        if (_currentTask.IsPendingConfirmation)
         {
-            ProgressSizeTextBlock.Text = $"{TaskItemViewModel.FormatBytes(_currentTask.DownloadedBytes)} di {TaskItemViewModel.FormatBytes(_currentTask.TotalSize)} ({_currentTask.Progress:0.#}%)";
+            ConfirmationActionsPanel.Visibility = Visibility.Visible;
+            StandardActionsPanel.Visibility = Visibility.Collapsed;
+            NormalSpeedPanel.Visibility = Visibility.Visible;
+            ErrorSpeedPanel.Visibility = Visibility.Collapsed;
+
+            ProgressSizeTextBlock.Text = _currentTask.TotalSize > 0
+                ? $"Dimensione: {TaskItemViewModel.FormatBytes(_currentTask.TotalSize)}"
+                : "Dimensione non nota";
+
+            PercentageTextBlock.Text = "In attesa";
+            SpeedIconTextBlock.Text = "⏱";
+            SpeedTextBlock.Text = "Pronto per l'avvio";
+            EtaTextBlock.Text = "--:--";
+            StatusBadgeTextBlock.Text = "In attesa di conferma";
+
+            StopAutoCloseTimer();
         }
+        // 3. Error Fallback (CDN / network errors)
+        else if (_currentTask.IsError)
+        {
+            ConfirmationActionsPanel.Visibility = Visibility.Collapsed;
+            StandardActionsPanel.Visibility = Visibility.Visible;
+            NormalSpeedPanel.Visibility = Visibility.Collapsed;
+            ErrorSpeedPanel.Visibility = Visibility.Visible;
+
+            ErrorMessageTextBlock.Text = !string.IsNullOrWhiteSpace(_currentTask.ErrorMessage)
+                ? _currentTask.ErrorMessage
+                : "Connessione fallita - CDN";
+
+            ProgressSizeTextBlock.Text = _currentTask.TotalSize > 0
+                ? $"{TaskItemViewModel.FormatBytes(_currentTask.DownloadedBytes)} di {TaskItemViewModel.FormatBytes(_currentTask.TotalSize)}"
+                : $"{TaskItemViewModel.FormatBytes(_currentTask.DownloadedBytes)}";
+
+            ActionIcon1.Glyph = "\uE72C"; // Refresh / Retry glyph
+            ActionText1.Text = "Riprova";
+            ActionIcon2.Glyph = "\uED25";
+            ActionText2.Text = "Cartella";
+
+            StatusBadgeTextBlock.Text = "Errore";
+            StopAutoCloseTimer();
+        }
+        // 4. Completed
+        else if (_currentTask.IsCompleted)
+        {
+            ConfirmationActionsPanel.Visibility = Visibility.Collapsed;
+            StandardActionsPanel.Visibility = Visibility.Visible;
+            NormalSpeedPanel.Visibility = Visibility.Visible;
+            ErrorSpeedPanel.Visibility = Visibility.Collapsed;
+
+            ProgressSizeTextBlock.Text = $"{TaskItemViewModel.FormatBytes(_currentTask.DownloadedBytes)} di {TaskItemViewModel.FormatBytes(_currentTask.TotalSize)} (100%)";
+            PercentageTextBlock.Text = "100%";
+
+            ActionIcon1.Glyph = "\uE8E5"; // Play / Open
+            ActionText1.Text = "Apri file";
+            ActionIcon2.Glyph = "\uED25";
+            ActionText2.Text = "Cartella";
+
+            SpeedIconTextBlock.Text = "✔";
+            SpeedTextBlock.Text = "Completato";
+            EtaTextBlock.Text = "Pronto";
+            StatusBadgeTextBlock.Text = "Completato";
+
+            StartAutoCloseTimer();
+        }
+        // 5. Paused
+        else if (_currentTask.IsPaused)
+        {
+            ConfirmationActionsPanel.Visibility = Visibility.Collapsed;
+            StandardActionsPanel.Visibility = Visibility.Visible;
+            NormalSpeedPanel.Visibility = Visibility.Visible;
+            ErrorSpeedPanel.Visibility = Visibility.Collapsed;
+
+            ProgressSizeTextBlock.Text = _currentTask.TotalSize > 0
+                ? $"{TaskItemViewModel.FormatBytes(_currentTask.DownloadedBytes)} di {TaskItemViewModel.FormatBytes(_currentTask.TotalSize)} ({_currentTask.Progress:0.#}%)"
+                : $"{TaskItemViewModel.FormatBytes(_currentTask.DownloadedBytes)} ({_currentTask.Progress:0.#}%)";
+
+            ActionIcon1.Glyph = "\uE768"; // Resume
+            ActionText1.Text = "Riprendi";
+            ActionIcon2.Glyph = "\uED25";
+            ActionText2.Text = "Cartella";
+
+            SpeedIconTextBlock.Text = "⏸";
+            SpeedTextBlock.Text = "In pausa";
+            EtaTextBlock.Text = "--:--";
+            StatusBadgeTextBlock.Text = "In pausa";
+
+            StopAutoCloseTimer();
+        }
+        // 6. Active Downloading
         else
         {
-            ProgressSizeTextBlock.Text = $"{TaskItemViewModel.FormatBytes(_currentTask.DownloadedBytes)} ({_currentTask.Progress:0.#}%)";
+            ConfirmationActionsPanel.Visibility = Visibility.Collapsed;
+            StandardActionsPanel.Visibility = Visibility.Visible;
+            NormalSpeedPanel.Visibility = Visibility.Visible;
+            ErrorSpeedPanel.Visibility = Visibility.Collapsed;
+
+            ProgressSizeTextBlock.Text = _currentTask.TotalSize > 0
+                ? $"{TaskItemViewModel.FormatBytes(_currentTask.DownloadedBytes)} di {TaskItemViewModel.FormatBytes(_currentTask.TotalSize)} ({_currentTask.Progress:0.#}%)"
+                : $"{TaskItemViewModel.FormatBytes(_currentTask.DownloadedBytes)} ({_currentTask.Progress:0.#}%)";
+
+            ActionIcon1.Glyph = "\uE769"; // Pause
+            ActionText1.Text = "Pausa";
+            ActionIcon2.Glyph = "\uED25";
+            ActionText2.Text = "Cartella";
+
+            SpeedIconTextBlock.Text = "⬇";
+            SpeedTextBlock.Text = _currentTask.SpeedFormatted;
+            EtaTextBlock.Text = _currentTask.EtaFormatted;
+            StatusBadgeTextBlock.Text = _currentTask.StatusDisplay;
+
+            StopAutoCloseTimer();
         }
 
-        // Live speed & ETA: "⬇️ 4.2 MB/s • ETA: 00:15"
-        SpeedTextBlock.Text = _currentTask.SpeedFormatted;
-        EtaTextBlock.Text = _currentTask.EtaFormatted;
-        StatusBadgeTextBlock.Text = _currentTask.StatusDisplay;
-
-        // Icon & status color
+        // Status Glyph and Color
         FileStatusIcon.Glyph = _currentTask.StatusIconGlyph;
         try
         {
@@ -134,48 +311,157 @@ public sealed partial class FloatingDownloadWindow : Window
             TaskProgressBar.Foreground = brush;
         }
         catch { }
+    }
 
-        // Dynamic footer actions
+    private void PrevTaskButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (CurrentIndex > 0)
+        {
+            CurrentIndex--;
+            BindCurrentTask();
+            UpdateUI();
+        }
+    }
+
+    private void NextTaskButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (CurrentIndex < MonitoredTasks.Count - 1)
+        {
+            CurrentIndex++;
+            BindCurrentTask();
+            UpdateUI();
+        }
+    }
+
+    private void ExpandCollapseButton_Click(object sender, RoutedEventArgs e)
+    {
+        _isExpanded = !_isExpanded;
+        ExpandedListPanel.Visibility = _isExpanded ? Visibility.Visible : Visibility.Collapsed;
+        ExpandCollapseIcon.Glyph = _isExpanded ? "\uE70E" : "\uE70D";
+        ToolTipService.SetToolTip(ExpandCollapseButton, _isExpanded ? "Comprimi elenco" : "Elenco download");
+        PositionWindow();
+    }
+
+    private void ActionButton1_Click(object sender, RoutedEventArgs e)
+    {
+        StopAutoCloseTimer();
+        if (_currentTask is null) return;
+
         if (_currentTask.IsCompleted)
         {
-            // Completed: "▶️ Apri file" and "📂 Mostra nella cartella"
-            ActionIcon1.Glyph = "\uE8E5"; // Open file / play glyph
-            ActionText1.Text = "Apri file";
-
-            ActionIcon2.Glyph = "\uED25"; // Folder glyph
-            ActionText2.Text = "Mostra cartella";
-
-            SpeedIconTextBlock.Text = "✔";
-            SpeedTextBlock.Text = "Completato";
-            EtaTextBlock.Text = "Pronto";
-
-            StartAutoCloseTimer();
+            _viewModel.OpenFileCommand.Execute(_currentTask);
         }
-        else if (_currentTask.IsPaused)
+        else if (_currentTask.IsPaused || _currentTask.IsError)
         {
-            // Paused: "▶️ Riprendi" and "📂 Cartella"
-            ActionIcon1.Glyph = "\uE768"; // Resume
-            ActionText1.Text = "Riprendi";
-
-            ActionIcon2.Glyph = "\uED25";
-            ActionText2.Text = "Cartella";
-
-            SpeedIconTextBlock.Text = "⏸";
-            SpeedTextBlock.Text = "In pausa";
-            StopAutoCloseTimer();
+            _viewModel.ResumeTaskCommand.Execute(_currentTask);
         }
         else
         {
-            // Downloading: "⏸️ Pausa" and "📂 Cartella"
-            ActionIcon1.Glyph = "\uE769"; // Pause
-            ActionText1.Text = "Pausa";
-
-            ActionIcon2.Glyph = "\uED25";
-            ActionText2.Text = "Cartella";
-
-            SpeedIconTextBlock.Text = "⬇";
-            StopAutoCloseTimer();
+            _viewModel.PauseTaskCommand.Execute(_currentTask);
         }
+    }
+
+    private void ActionButton2_Click(object sender, RoutedEventArgs e)
+    {
+        StopAutoCloseTimer();
+        if (_currentTask is null) return;
+        _viewModel.OpenContainingFolderCommand.Execute(_currentTask);
+    }
+
+    private void StartNowButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentTask is null) return;
+        _viewModel.ResumeTaskCommand.Execute(_currentTask);
+        UpdateUI();
+    }
+
+    private void EnqueueButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentTask is null) return;
+        _viewModel.ResumeTaskCommand.Execute(_currentTask);
+        UpdateUI();
+    }
+
+    private void CancelTaskButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentTask is null) return;
+        var toRemove = _currentTask;
+        _viewModel.DeleteTaskCommand.Execute(toRemove);
+        RemoveTaskFromMonitoring(toRemove);
+    }
+
+    private async void ChangeFolderButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentTask is null) return;
+        try
+        {
+            var picker = new FolderPicker();
+            picker.SuggestedStartLocation = PickerLocationId.Downloads;
+            picker.FileTypeFilter.Add("*");
+
+            var hwnd = WindowNative.GetWindowHandle(this);
+            InitializeWithWindow.Initialize(picker, hwnd);
+
+            var folder = await picker.PickSingleFolderAsync();
+            if (folder != null)
+            {
+                _currentTask.DestinationDir = folder.Path;
+                DestinationPathTextBlock.Text = folder.Path;
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[FloatingWindow] Folder pick error: {ex.Message}");
+        }
+    }
+
+    private void SelectAllCheckBox_Click(object sender, RoutedEventArgs e)
+    {
+        bool isChecked = SelectAllCheckBox.IsChecked ?? false;
+        foreach (var task in MonitoredTasks)
+        {
+            task.IsSelected = isChecked;
+        }
+    }
+
+    private void StartSelectedButton_Click(object sender, RoutedEventArgs e)
+    {
+        var selected = MonitoredTasks.Where(t => t.IsSelected).ToList();
+        foreach (var t in selected)
+        {
+            _viewModel.ResumeTaskCommand.Execute(t);
+        }
+        UpdateUI();
+    }
+
+    private void DeleteSelectedButton_Click(object sender, RoutedEventArgs e)
+    {
+        var selected = MonitoredTasks.Where(t => t.IsSelected).ToList();
+        foreach (var t in selected)
+        {
+            _viewModel.DeleteTaskCommand.Execute(t);
+            RemoveTaskFromMonitoring(t);
+        }
+    }
+
+    private void TasksListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (TasksListView.SelectedItem is TaskItemViewModel clicked)
+        {
+            int idx = MonitoredTasks.IndexOf(clicked);
+            if (idx >= 0)
+            {
+                CurrentIndex = idx;
+                BindCurrentTask();
+                UpdateUI();
+            }
+        }
+    }
+
+    private void CloseButton_Click(object sender, RoutedEventArgs e)
+    {
+        StopAutoCloseTimer();
+        this.Close();
     }
 
     private void StartAutoCloseTimer()
@@ -207,38 +493,6 @@ public sealed partial class FloatingDownloadWindow : Window
         }
     }
 
-    private void ActionButton1_Click(object sender, RoutedEventArgs e)
-    {
-        StopAutoCloseTimer();
-        if (_currentTask is null) return;
-
-        if (_currentTask.IsCompleted)
-        {
-            _viewModel.OpenFileCommand.Execute(_currentTask);
-        }
-        else if (_currentTask.IsPaused)
-        {
-            _viewModel.ResumeTaskCommand.Execute(_currentTask);
-        }
-        else
-        {
-            _viewModel.PauseTaskCommand.Execute(_currentTask);
-        }
-    }
-
-    private void ActionButton2_Click(object sender, RoutedEventArgs e)
-    {
-        StopAutoCloseTimer();
-        if (_currentTask is null) return;
-        _viewModel.OpenContainingFolderCommand.Execute(_currentTask);
-    }
-
-    private void CloseButton_Click(object sender, RoutedEventArgs e)
-    {
-        StopAutoCloseTimer();
-        this.Close();
-    }
-
     private void OnWindowClosed(object sender, WindowEventArgs args)
     {
         StopAutoCloseTimer();
@@ -247,6 +501,7 @@ public sealed partial class FloatingDownloadWindow : Window
             _currentTask.PropertyChanged -= OnTaskPropertyChanged;
             _currentTask = null;
         }
+        MonitoredTasks.Clear();
     }
 
     private static Windows.UI.Color ParseColor(string hex)
