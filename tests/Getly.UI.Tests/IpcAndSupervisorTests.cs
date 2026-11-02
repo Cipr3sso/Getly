@@ -239,6 +239,14 @@ public class IpcAndSupervisorTests : IDisposable
 
             // 4. Delete
             await client.DeleteTaskAsync(task.TaskId, deleteFiles: false, cancellationToken: _testCts.Token);
+
+            // 5. SetSettingsAsync
+            await client.SetSettingsAsync(
+                requireConfirmation: true,
+                confirmationThresholdMb: 250,
+                autoCategorize: false,
+                cancellationToken: _testCts.Token
+            );
         }
         finally
         {
@@ -331,5 +339,137 @@ public class IpcAndSupervisorTests : IDisposable
         Assert.True(errorVm.IsError);
         Assert.Equal("Connessione fallita - CDN", errorVm.ErrorMessage);
         Assert.Contains("Connessione fallita - CDN", errorVm.ErrorToolTip);
+    }
+
+    [Theory]
+    [InlineData("WAITING")]
+    [InlineData("PENDING_CONFIRMATION")]
+    [InlineData("WAITING_CONFIRMATION")]
+    [InlineData("WaitingConfirmation")]
+    public void TaskItemViewModel_AllWaitingConfirmationVariants_Recognized(string status)
+    {
+        var dto = new TaskItemDto
+        {
+            TaskId = "variant-1",
+            Url = "https://example.com/file.zip",
+            Filename = "file.zip",
+            Status = status,
+            TotalSize = 100 * 1024 * 1024,
+            TaskType = "HTTP"
+        };
+        var vm = new TaskItemViewModel(dto);
+        Assert.True(vm.IsPendingConfirmation);
+        Assert.Equal("In attesa di conferma", vm.StatusDisplay);
+        Assert.Equal("#F59E0B", vm.StatusColor);
+    }
+
+    [Fact]
+    public void TaskItemViewModel_SizeMbFormatted_FormatsCorrectly()
+    {
+        var dto100Mb = new TaskItemDto
+        {
+            TaskId = "size-1",
+            Url = "https://example.com/file.zip",
+            Filename = "file.zip",
+            Status = "DOWNLOADING",
+            TotalSize = 104857600, // 100 MB
+            TaskType = "HTTP"
+        };
+        var vm1 = new TaskItemViewModel(dto100Mb);
+        Assert.Equal("100 MB", vm1.SizeMbFormatted);
+
+        var dto50Mb = dto100Mb with { TotalSize = 52428800 }; // 50 MB
+        vm1.UpdateFrom(dto50Mb);
+        Assert.Equal("50 MB", vm1.SizeMbFormatted);
+
+        var dtoZero = dto100Mb with { TotalSize = 0 };
+        vm1.UpdateFrom(dtoZero);
+        Assert.Equal("0 MB", vm1.SizeMbFormatted);
+    }
+
+    [Fact]
+    public void BatchDownloadItem_DeduceFilenameAndCategory_WorksCorrectly()
+    {
+        // 1. Direct HTTP URL
+        string zipUrl = "https://cdn.example.org/downloads/setup_v2.zip";
+        Assert.Equal("setup_v2.zip", BatchDownloadItem.DeduceFilename(zipUrl));
+        Assert.Equal("Compressi", BatchDownloadItem.DeduceCategory("setup_v2.zip", zipUrl));
+
+        // 2. Video URL
+        string videoUrl = "https://media.example.com/trailer.mp4";
+        Assert.Equal("trailer.mp4", BatchDownloadItem.DeduceFilename(videoUrl));
+        Assert.Equal("Video", BatchDownloadItem.DeduceCategory("trailer.mp4", videoUrl));
+
+        // 3. Document PDF
+        string docUrl = "https://research.org/report.pdf";
+        Assert.Equal("report.pdf", BatchDownloadItem.DeduceFilename(docUrl));
+        Assert.Equal("Documenti", BatchDownloadItem.DeduceCategory("report.pdf", docUrl));
+
+        // 4. Magnet link
+        string magnetUrl = "magnet:?xt=urn:btih:da39a3ee5e6b4b0d3255bfef95601890afd80709&dn=Ubuntu+24.04+LTS.iso&tr=udp%3A%2F%2Ftracker.openbittorrent.com%3A80";
+        Assert.Equal("Ubuntu 24.04 LTS.iso", BatchDownloadItem.DeduceFilename(magnetUrl));
+        Assert.Equal("Torrent", BatchDownloadItem.DeduceCategory("Ubuntu 24.04 LTS.iso", magnetUrl));
+    }
+
+    [Fact]
+    public void BatchDownload_RegexExtraction_ExtractsUrlsFromMixedText()
+    {
+        string rawText = """
+        Ecco i link da scaricare:
+        1. https://cdn.example.com/file1.zip (file compresso)
+        2. http://downloads.test.org/installer.exe
+        3. magnet:?xt=urn:btih:0123456789abcdef&dn=debian.iso
+        Ignora questo testo non-link o link incompleti come ftp://old.server.com
+        """;
+
+        var regex = new System.Text.RegularExpressions.Regex(
+            @"(https?://[^\s""'<>]+|magnet:\?[^\s""'<>]+)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase
+        );
+
+        var matches = regex.Matches(rawText);
+        Assert.Equal(3, matches.Count);
+        Assert.Equal("https://cdn.example.com/file1.zip", matches[0].Value);
+        Assert.Equal("http://downloads.test.org/installer.exe", matches[1].Value);
+        Assert.Equal("magnet:?xt=urn:btih:0123456789abcdef&dn=debian.iso", matches[2].Value);
+    }
+
+    [Fact]
+    public async Task MainViewModel_Settings_DefaultsAndPersistenceAsync()
+    {
+        var vm = new MainViewModel();
+
+        // Defaults
+        Assert.False(vm.RequireConfirmation);
+        Assert.Equal(100.0, vm.ConfirmationThresholdMB);
+        Assert.True(vm.AutoCategorize);
+
+        // Modify settings
+        vm.RequireConfirmation = true;
+        vm.ConfirmationThresholdMB = 250;
+        vm.AutoCategorize = false;
+
+        // Save
+        await vm.SaveSettingsAsync();
+
+        string settingsPath = MainViewModel.GetSettingsFilePath();
+        Assert.True(File.Exists(settingsPath));
+
+        string json = await File.ReadAllTextAsync(settingsPath);
+        Assert.Contains("\"RequireConfirmation\": true", json);
+        Assert.Contains("\"ConfirmationThresholdMB\": 250", json);
+        Assert.Contains("\"AutoCategorize\": false", json);
+
+        // Reload into a fresh VM instance
+        var newVm = new MainViewModel();
+        Assert.True(newVm.RequireConfirmation);
+        Assert.Equal(250.0, newVm.ConfirmationThresholdMB);
+        Assert.False(newVm.AutoCategorize);
+
+        // Reset to original defaults
+        newVm.RequireConfirmation = false;
+        newVm.ConfirmationThresholdMB = 100;
+        newVm.AutoCategorize = true;
+        await newVm.SaveSettingsAsync();
     }
 }

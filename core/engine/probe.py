@@ -58,14 +58,21 @@ def get_browser_headers(
     is_chromium_desktop = "Chrome" in effective_ua and "Windows" in effective_ua and not is_googlevideo
 
     if is_chromium_desktop:
-        headers.update({
-            "Sec-Ch-Ua": '"Chromium";v="125", "Not.A/Brand";v="24"',
-            "Sec-Ch-Ua-Mobile": "?0",
-            "Sec-Ch-Ua-Platform": '"Windows"',
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "cross-site",
-        })
+        if not custom_headers:
+            headers.update({
+                "Sec-Ch-Ua": '"Chromium";v="125", "Not.A/Brand";v="24"',
+                "Sec-Ch-Ua-Mobile": "?0",
+                "Sec-Ch-Ua-Platform": '"Windows"',
+                "Sec-Fetch-Dest": "empty",
+                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Site": "cross-site",
+            })
+        else:
+            headers.update({
+                "Sec-Fetch-Dest": "empty",
+                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Site": "cross-site",
+            })
 
     if effective_referer:
         if "twimg.com" in effective_referer.lower():
@@ -95,6 +102,24 @@ def get_browser_headers(
             headers[ck] = cv
 
     return headers
+
+
+def sanitize_headers_for_impersonation(headers: Optional[dict]) -> dict:
+    """
+    Sanitizes custom headers when delegating to curl_cffi with browser impersonation (e.g. impersonate="chrome").
+    Strips discordant client hints (Sec-Ch-Ua, Sec-Ch-Ua-Mobile, Sec-Ch-Ua-Platform) and User-Agent
+    that conflict with curl_cffi's impersonated profile, while strictly preserving Cookie
+    (including cf_clearance), Referer, Range, and other custom headers.
+    """
+    if not headers:
+        return {}
+    strip_keys = {
+        "user-agent",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+    }
+    return {k: v for k, v in headers.items() if k.lower() not in strip_keys}
 
 
 DEFAULT_HTTP_HEADERS = get_browser_headers()
@@ -188,9 +213,10 @@ class ResourceProbe:
                     user_agent=user_agent,
                     custom_headers=custom_headers,
                 )
-                logger.info("Attempting Cloudflare TLS impersonation probe (curl_cffi chrome124) for %s", target_url)
-                async with CurlAsyncSession(impersonate="chrome124") as curl_session:
-                    curl_resp = await curl_session.get(target_url, headers=cf_headers, stream=True)
+                req_headers = sanitize_headers_for_impersonation(cf_headers)
+                logger.info("Attempting Cloudflare TLS impersonation probe (curl_cffi chrome) for %s", target_url)
+                async with CurlAsyncSession(impersonate="chrome") as curl_session:
+                    curl_resp = await curl_session.get(target_url, headers=req_headers, stream=True, allow_redirects=True)
                     res_url = str(curl_resp.url)
                     headers_map = {k.lower(): v for k, v in curl_resp.headers.items()}
                     status = curl_resp.status_code

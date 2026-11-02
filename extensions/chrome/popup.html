@@ -35,12 +35,30 @@
       </label>
     </section>
 
+    <!-- Scan Page Links Action Section -->
+    <section class="scan-section">
+      <button id="scanPageLinksBtn" class="btn btn-scan">
+        🔍 Analizza tutti i link della pagina
+      </button>
+    </section>
+
+    <!-- Navigation Tabs -->
+    <nav class="nav-tabs">
+      <button id="tabMediaBtn" class="tab-btn active" type="button">
+        <span>🎬 Media rilevati</span>
+        <span id="mediaCountBadge" class="count-badge">0</span>
+      </button>
+      <button id="tabGrabberBtn" class="tab-btn" type="button">
+        <span>🔗 Link pagina</span>
+        <span id="grabberCountBadge" class="count-badge">0</span>
+      </button>
+    </nav>
+
     <!-- Video & Media Sniffer Section -->
-    <section class="media-section">
+    <section id="mediaSection" class="tab-content media-section active">
       <div class="section-header">
         <div class="section-title">
-          <span>Media rilevati nella pagina</span>
-          <span id="mediaCountBadge" class="count-badge">0</span>
+          <span>Flussi video e audio intercettati</span>
         </div>
         <button id="clearMediaBtn" class="icon-btn" title="Pulisci lista media">🗑</button>
       </div>
@@ -58,6 +76,52 @@
       <div id="bulkActions" class="bulk-actions hidden">
         <button id="downloadAllBtn" class="btn btn-primary">
           ⬇ Scarica tutti i media rilevati
+        </button>
+      </div>
+    </section>
+
+    <!-- Page Link Grabber Section -->
+    <section id="grabberSection" class="tab-content grabber-section">
+      <!-- Category Filter Bar -->
+      <div id="categoryFilterBar" class="filter-bar">
+        <button type="button" class="filter-pill active" data-category="Tutti">
+          Tutti <span id="countTutti" class="pill-count">(0)</span>
+        </button>
+        <button type="button" class="filter-pill" data-category="Archivi">
+          Archivi <span id="countArchivi" class="pill-count">(0)</span>
+        </button>
+        <button type="button" class="filter-pill" data-category="Documenti">
+          Documenti <span id="countDocumenti" class="pill-count">(0)</span>
+        </button>
+        <button type="button" class="filter-pill" data-category="Video">
+          Video <span id="countVideo" class="pill-count">(0)</span>
+        </button>
+        <button type="button" class="filter-pill" data-category="Programmi">
+          Programmi <span id="countProgrammi" class="pill-count">(0)</span>
+        </button>
+      </div>
+
+      <!-- Select All Bar -->
+      <div class="select-bar">
+        <label class="select-all-label">
+          <input type="checkbox" id="selectAllLinks" checked />
+          <span id="selectAllText">Seleziona tutti</span>
+        </label>
+        <span id="selectedCountText" class="selected-count">0 selezionati</span>
+      </div>
+
+      <!-- Grabber Link List Container -->
+      <div id="grabberList" class="grabber-list">
+        <div id="emptyGrabber" class="empty-state">
+          <span class="empty-icon">🔍</span>
+          <p class="empty-text">Nessun file scaricabile trovato.<br>Clicca "Analizza tutti i link della pagina".</p>
+        </div>
+      </div>
+
+      <!-- Batch Download Action Button -->
+      <div id="grabberActions" class="grabber-actions hidden">
+        <button id="downloadBatchBtn" class="btn btn-primary">
+          ⬇️ Scarica selezionati con Getly
         </button>
       </div>
     </section>

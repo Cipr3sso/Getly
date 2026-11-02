@@ -123,7 +123,9 @@ public partial class TaskItemViewModel : ObservableObject
         IsError = string.Equals(dto.Status, "FAILED", StringComparison.OrdinalIgnoreCase)
                   || string.Equals(dto.Status, "ERROR", StringComparison.OrdinalIgnoreCase);
         IsPendingConfirmation = string.Equals(dto.Status, "WAITING", StringComparison.OrdinalIgnoreCase)
-                                || string.Equals(dto.Status, "PENDING_CONFIRMATION", StringComparison.OrdinalIgnoreCase);
+                                || string.Equals(dto.Status, "PENDING_CONFIRMATION", StringComparison.OrdinalIgnoreCase)
+                                || string.Equals(dto.Status, "WAITING_CONFIRMATION", StringComparison.OrdinalIgnoreCase)
+                                || string.Equals(dto.Status, "WaitingConfirmation", StringComparison.OrdinalIgnoreCase);
 
         ErrorToolTip = !string.IsNullOrWhiteSpace(ErrorMessage)
             ? $"Errore: {ErrorMessage}"
@@ -159,6 +161,8 @@ public partial class TaskItemViewModel : ObservableObject
                 break;
             case "WAITING":
             case "PENDING_CONFIRMATION":
+            case "WAITING_CONFIRMATION":
+            case "WAITINGCONFIRMATION":
                 StatusDisplay = "In attesa di conferma";
                 StatusColor = "#F59E0B"; // Amber
                 StatusIconGlyph = "\uE897"; // Download or hourglass badge
@@ -175,6 +179,17 @@ public partial class TaskItemViewModel : ObservableObject
                 break;
         }
         OnPropertyChanged(nameof(CategoryBackground));
+        OnPropertyChanged(nameof(SizeMbFormatted));
+    }
+
+    public string SizeMbFormatted
+    {
+        get
+        {
+            if (TotalSize <= 0) return "0 MB";
+            double mb = TotalSize / (1024.0 * 1024.0);
+            return $"{mb:0.#} MB";
+        }
     }
 
     public string CategoryBackground
@@ -231,5 +246,82 @@ public partial class TaskItemViewModel : ObservableObject
 
         var ts = TimeSpan.FromSeconds(seconds);
         return ts.TotalHours >= 1 ? ts.ToString(@"hh\:mm\:ss") : ts.ToString(@"mm\:ss");
+    }
+}
+
+public partial class BatchDownloadItem : ObservableObject
+{
+    [ObservableProperty]
+    private bool _isSelected = true;
+
+    [ObservableProperty]
+    private string _url = string.Empty;
+
+    [ObservableProperty]
+    private string _filename = string.Empty;
+
+    [ObservableProperty]
+    private string _category = "Altro";
+
+    public string CategoryBackground
+    {
+        get
+        {
+            return Category.ToLowerInvariant() switch
+            {
+                "video" or "film" => "#0078D4",
+                "compressi" or "archivio" or "zip" or "rar" or "7z" => "#D83B01",
+                "documenti" or "pdf" or "ebook" or "doc" => "#C42B1C",
+                "audio" or "musica" or "mp3" => "#8764B8",
+                "software" or "programmi" or "iso" or "exe" => "#008272",
+                _ => "#475569"
+            };
+        }
+    }
+
+    public static string DeduceFilename(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return "download";
+
+        if (url.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(url, @"[?&]dn=([^&]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (match.Success)
+            {
+                return Uri.UnescapeDataString(match.Groups[1].Value.Replace('+', ' '));
+            }
+            return "Torrent Download";
+        }
+
+        try
+        {
+            if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            {
+                string name = System.IO.Path.GetFileName(uri.LocalPath);
+                if (!string.IsNullOrWhiteSpace(name))
+                {
+                    return Uri.UnescapeDataString(name);
+                }
+            }
+        }
+        catch { }
+
+        return "download";
+    }
+
+    public static string DeduceCategory(string filename, string url)
+    {
+        if (url.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase)) return "Torrent";
+        string ext = System.IO.Path.GetExtension(filename).ToLowerInvariant();
+
+        return ext switch
+        {
+            ".mp4" or ".mkv" or ".avi" or ".mov" or ".webm" or ".flv" or ".ts" or ".m4v" => "Video",
+            ".zip" or ".rar" or ".7z" or ".tar" or ".gz" or ".bz2" or ".xz" or ".iso" => "Compressi",
+            ".pdf" or ".doc" or ".docx" or ".epub" or ".txt" or ".xlsx" or ".xls" or ".ppt" or ".pptx" or ".csv" => "Documenti",
+            ".mp3" or ".flac" or ".wav" or ".aac" or ".ogg" or ".m4a" or ".wma" => "Audio",
+            ".exe" or ".msi" or ".apk" or ".dmg" or ".pkg" or ".deb" or ".rpm" or ".appx" => "Software",
+            _ => "Altro"
+        };
     }
 }

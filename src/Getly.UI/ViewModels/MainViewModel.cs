@@ -5,6 +5,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -41,6 +42,15 @@ public partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     private long _globalSpeedLimitBps = 0;
+
+    [ObservableProperty]
+    private bool _requireConfirmation = false;
+
+    [ObservableProperty]
+    private double _confirmationThresholdMB = 100;
+
+    [ObservableProperty]
+    private bool _autoCategorize = true;
 
     [ObservableProperty]
     private bool _enableFloatingWindow = true;
@@ -136,6 +146,8 @@ public partial class MainViewModel : ObservableObject
             _dispatcherQueue = null;
         }
 
+        LoadSettings();
+
         _ipcClient.OnConnected += () => RunOnUI(() => IsBackendConnected = true);
         _ipcClient.OnDisconnected += () => RunOnUI(() => IsBackendConnected = false);
         _ipcClient.OnTelemetryReceived += HandleTelemetryTick;
@@ -153,6 +165,22 @@ public partial class MainViewModel : ObservableObject
 
             StatusMessage = "Connessione al canale IPC...";
             await _ipcClient.ConnectAsync(timeoutMs: 8000);
+
+            // Synchronize settings with Python backend
+            try
+            {
+                await _ipcClient.SetSettingsAsync(
+                    RequireConfirmation,
+                    (int)ConfirmationThresholdMB,
+                    AutoCategorize,
+                    DefaultDownloadDir,
+                    MaxConcurrentConnections
+                );
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Settings] Sync error: {ex.Message}");
+            }
 
             StatusMessage = "Caricamento download...";
             var initialTasks = await _ipcClient.GetTasksAsync();
@@ -343,13 +371,18 @@ public partial class MainViewModel : ObservableObject
     #region Relay Commands
 
     [RelayCommand]
-    private async Task AddDownloadAsync(string url)
+    public async Task AddDownloadAsync(string url)
+    {
+        await AddDownloadWithParamsAsync(url);
+    }
+
+    public async Task AddDownloadWithParamsAsync(string url, string? category = null, bool startPaused = false, string? filename = null)
     {
         if (string.IsNullOrWhiteSpace(url)) return;
         try
         {
             StatusMessage = "Aggiunta download...";
-            var task = await _ipcClient.AddTaskAsync(url.Trim());
+            var task = await _ipcClient.AddTaskAsync(url.Trim(), category: category, destDir: DefaultDownloadDir, filename: filename, startPaused: startPaused);
             RunOnUI(() =>
             {
                 TaskItemViewModel vm;
@@ -505,15 +538,87 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    public static string GetSettingsFilePath()
+    {
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        return Path.Combine(localAppData, "Getly", "settings.json");
+    }
+
+    public void LoadSettings()
+    {
+        try
+        {
+            var filePath = GetSettingsFilePath();
+            if (File.Exists(filePath))
+            {
+                var json = File.ReadAllText(filePath);
+                var settings = JsonSerializer.Deserialize<GetlySettingsModel>(json);
+                if (settings != null)
+                {
+                    if (!string.IsNullOrWhiteSpace(settings.DefaultDownloadDir))
+                        DefaultDownloadDir = settings.DefaultDownloadDir;
+                    if (settings.MaxConcurrentConnections > 0)
+                        MaxConcurrentConnections = settings.MaxConcurrentConnections;
+                    GlobalSpeedLimitBps = settings.GlobalSpeedLimitBps;
+                    RequireConfirmation = settings.RequireConfirmation;
+                    ConfirmationThresholdMB = settings.ConfirmationThresholdMB;
+                    AutoCategorize = settings.AutoCategorize;
+                    VpnShieldActive = settings.VpnShieldActive;
+                    AutostartEnabled = settings.AutostartEnabled;
+                    EnableFloatingWindow = settings.EnableFloatingWindow;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Settings] Load error: {ex.Message}");
+        }
+    }
+
     [RelayCommand]
     public async Task SaveSettingsAsync()
     {
         try
         {
-            if (GlobalSpeedLimitBps >= 0)
+            var settings = new GetlySettingsModel
             {
-                await _ipcClient.SetSpeedLimitAsync(GlobalSpeedLimitBps);
+                DefaultDownloadDir = DefaultDownloadDir,
+                MaxConcurrentConnections = MaxConcurrentConnections,
+                GlobalSpeedLimitBps = GlobalSpeedLimitBps,
+                RequireConfirmation = RequireConfirmation,
+                ConfirmationThresholdMB = ConfirmationThresholdMB,
+                AutoCategorize = AutoCategorize,
+                VpnShieldActive = VpnShieldActive,
+                AutostartEnabled = AutostartEnabled,
+                EnableFloatingWindow = EnableFloatingWindow
+            };
+
+            var filePath = GetSettingsFilePath();
+            var dir = Path.GetDirectoryName(filePath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+            {
+                Directory.CreateDirectory(dir);
             }
+
+            var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
+            await File.WriteAllTextAsync(filePath, json);
+
+            if (_ipcClient.IsConnected)
+            {
+                if (GlobalSpeedLimitBps >= 0)
+                {
+                    await _ipcClient.SetSpeedLimitAsync(GlobalSpeedLimitBps);
+                }
+
+                await _ipcClient.SetSettingsAsync(
+                    RequireConfirmation,
+                    (int)ConfirmationThresholdMB,
+                    AutoCategorize,
+                    DefaultDownloadDir,
+                    MaxConcurrentConnections
+                );
+            }
+
             StatusMessage = "Impostazioni applicate con successo.";
         }
         catch (Exception ex)
@@ -535,4 +640,17 @@ public partial class MainViewModel : ObservableObject
             action();
         }
     }
+}
+
+public class GetlySettingsModel
+{
+    public string? DefaultDownloadDir { get; set; }
+    public int MaxConcurrentConnections { get; set; } = 8;
+    public long GlobalSpeedLimitBps { get; set; } = 0;
+    public bool RequireConfirmation { get; set; } = false;
+    public double ConfirmationThresholdMB { get; set; } = 100;
+    public bool AutoCategorize { get; set; } = true;
+    public bool VpnShieldActive { get; set; } = true;
+    public bool AutostartEnabled { get; set; } = false;
+    public bool EnableFloatingWindow { get; set; } = true;
 }

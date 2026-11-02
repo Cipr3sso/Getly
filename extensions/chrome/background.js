@@ -223,9 +223,6 @@ chrome.downloads.onCreated.addListener(async (downloadItem) => {
       Cookie: cookieString,
       Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
       "Accept-Language": navigator.language || "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
-      "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-      "Sec-Ch-Ua-Mobile": "?0",
-      "Sec-Ch-Ua-Platform": '"Windows"',
       "Sec-Fetch-Dest": "document",
       "Sec-Fetch-Mode": "navigate",
       "Sec-Fetch-Site": "same-site",
@@ -542,27 +539,110 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({ success: true });
     return false;
   }
+
+  if (request.type === "DOWNLOAD_BATCH") {
+    sendBatchToGetly(request.items, request.referer)
+      .then((res) => sendResponse({ success: true, result: res, count: (request.items || []).length }))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
 });
+
+/**
+ * Sends a batch of download items to Getly daemon POST /add_batch
+ * Resolves full cookies and headers for each item.
+ */
+async function sendBatchToGetly(items, refererUrl) {
+  if (!items || !items.length) {
+    throw new Error("Nessun elemento specificato per il download batch");
+  }
+
+  const preparedItems = await Promise.all(
+    items.map(async (item) => {
+      let itemReferer = refererUrl || "";
+      if (!itemReferer && item.url && item.url.startsWith("http")) {
+        try {
+          const parsed = new URL(item.url);
+          itemReferer = `${parsed.origin}/`;
+        } catch (_) {}
+      }
+
+      const cookieString = await extractFullCookieHeader(item.url, itemReferer);
+
+      return {
+        url: item.url,
+        filename: item.filename || "",
+        file_size: item.file_size || null,
+        headers: {
+          Referer: itemReferer,
+          "User-Agent": navigator.userAgent,
+          Cookie: cookieString,
+        },
+        category: item.category || detectCategory(item.filename || item.url, ""),
+      };
+    })
+  );
+
+  const payload = {
+    items: preparedItems,
+    auto_start: true,
+  };
+
+  const response = await fetch(`${GETLY_API_BASE}/add_batch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Local daemon /add_batch returned status ${response.status}`);
+  }
+
+  return await response.json();
+}
 
 // Helper category classifier
 function detectCategory(filename, mime) {
   const lower = (filename || "").toLowerCase();
   const lowerMime = (mime || "").toLowerCase();
 
-  if (lowerMime.startsWith("video/") || lower.endsWith(".mp4") || lower.endsWith(".mkv") || lower.endsWith(".webm") || lower.endsWith(".m3u8")) {
+  if (
+    lowerMime.startsWith("video/") ||
+    lowerMime.startsWith("audio/") ||
+    lower.endsWith(".mp4") || lower.endsWith(".mkv") || lower.endsWith(".webm") ||
+    lower.endsWith(".avi") || lower.endsWith(".mov") || lower.endsWith(".wmv") ||
+    lower.endsWith(".flv") || lower.endsWith(".m4v") || lower.endsWith(".m3u8") ||
+    lower.endsWith(".mpd") || lower.endsWith(".ts") || lower.endsWith(".mp3") ||
+    lower.endsWith(".m4a") || lower.endsWith(".aac") || lower.endsWith(".flac") ||
+    lower.endsWith(".wav") || lower.endsWith(".ogg") || lower.endsWith(".opus")
+  ) {
     return "Video";
   }
-  if (lowerMime.startsWith("audio/") || lower.endsWith(".mp3") || lower.endsWith(".m4a") || lower.endsWith(".flac")) {
-    return "Audio";
+  if (
+    lower.endsWith(".zip") || lower.endsWith(".rar") || lower.endsWith(".7z") ||
+    lower.endsWith(".tar") || lower.endsWith(".gz") || lower.endsWith(".tgz") ||
+    lower.endsWith(".bz2") || lower.endsWith(".xz") || lower.endsWith(".7-zip") ||
+    lower.includes(".tar.gz")
+  ) {
+    return "Archivi";
   }
-  if (lower.endsWith(".zip") || lower.endsWith(".rar") || lower.endsWith(".7z") || lower.endsWith(".tar") || lower.endsWith(".gz")) {
-    return "Compressi";
+  if (
+    lower.endsWith(".exe") || lower.endsWith(".msi") || lower.endsWith(".apk") ||
+    lower.endsWith(".dmg") || lower.endsWith(".pkg") || lower.endsWith(".deb") ||
+    lower.endsWith(".rpm") || lower.endsWith(".iso") || lower.endsWith(".bin") ||
+    lower.endsWith(".appimage")
+  ) {
+    return "Programmi";
   }
-  if (lower.endsWith(".iso") || lower.endsWith(".exe") || lower.endsWith(".msi")) {
-    return "Software";
-  }
-  if (lower.endsWith(".pdf") || lower.endsWith(".epub") || lower.endsWith(".docx")) {
+  if (
+    lower.endsWith(".pdf") || lower.endsWith(".epub") || lower.endsWith(".mobi") ||
+    lower.endsWith(".doc") || lower.endsWith(".docx") || lower.endsWith(".xls") ||
+    lower.endsWith(".xlsx") || lower.endsWith(".ppt") || lower.endsWith(".pptx") ||
+    lower.endsWith(".txt") || lower.endsWith(".rtf") || lower.endsWith(".odt") ||
+    lower.endsWith(".csv")
+  ) {
     return "Documenti";
   }
   return "Altro";
 }
+

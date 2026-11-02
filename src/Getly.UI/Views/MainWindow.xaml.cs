@@ -1,8 +1,10 @@
 using System;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Getly.UI.ViewModels;
 using Microsoft.UI.Windowing;
@@ -208,6 +210,7 @@ public sealed partial class MainWindow : Window
         }
 
         _floatingWindow.AddOrUpdateTask(task);
+        _floatingWindow.AppWindow.IsShownInSwitchers = false;
         _floatingWindow.Activate();
     }
 
@@ -360,7 +363,6 @@ public sealed partial class MainWindow : Window
                 PrimaryButtonText = "Elimina",
                 CloseButtonText = "Annulla",
                 DefaultButton = ContentDialogButton.Close,
-                XamlRoot = Content.XamlRoot,
                 Content = new StackPanel
                 {
                     Spacing = 8,
@@ -375,6 +377,7 @@ public sealed partial class MainWindow : Window
                     }
                 }
             };
+            PrepareDialog(dialog);
 
             var result = await dialog.ShowAsync();
             if (result == ContentDialogResult.Primary)
@@ -549,6 +552,15 @@ public sealed partial class MainWindow : Window
 
     #region Dialogs
 
+    private void PrepareDialog(ContentDialog dialog)
+    {
+        if (this.Content is FrameworkElement root)
+        {
+            dialog.XamlRoot = root.XamlRoot;
+            dialog.RequestedTheme = root.ActualTheme;
+        }
+    }
+
     private async void OnAddDownloadClick(object sender, RoutedEventArgs e)
     {
         if (_isDialogOpen) return;
@@ -568,7 +580,6 @@ public sealed partial class MainWindow : Window
                 PrimaryButtonText = "Avvia Download",
                 CloseButtonText = "Annulla",
                 DefaultButton = ContentDialogButton.Primary,
-                XamlRoot = Content.XamlRoot,
                 Content = new StackPanel
                 {
                     Spacing = 10,
@@ -584,11 +595,195 @@ public sealed partial class MainWindow : Window
                     }
                 }
             };
+            PrepareDialog(dialog);
 
             var result = await dialog.ShowAsync();
             if (result == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(urlBox.Text))
             {
                 await ViewModel.AddDownloadCommand.ExecuteAsync(urlBox.Text.Trim());
+            }
+        }
+        finally
+        {
+            _isDialogOpen = false;
+        }
+    }
+
+    private static readonly Regex BatchUrlRegex = new(
+        @"(https?://[^\s""'<>]+|magnet:\?[^\s""'<>]+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase
+    );
+
+    private async void OnBatchDownloadClick(object sender, RoutedEventArgs e)
+    {
+        if (_isDialogOpen) return;
+        _isDialogOpen = true;
+
+        try
+        {
+            var batchItems = new ObservableCollection<BatchDownloadItem>();
+
+            var inputTextBox = new TextBox
+            {
+                PlaceholderText = "Incolla qui una lista di URL o del testo contenente link (HTTP, HTTPS, Magnet)...",
+                AcceptsReturn = true,
+                TextWrapping = TextWrapping.Wrap,
+                Height = 110,
+                Width = 520
+            };
+
+            var analyzeButton = new Button
+            {
+                Content = "Analizza URL",
+                Style = Application.Current.Resources["AccentButtonStyle"] as Style,
+                HorizontalAlignment = HorizontalAlignment.Left
+            };
+
+            var countTextBlock = new TextBlock
+            {
+                Text = "Nessun URL analizzato.",
+                FontSize = 11,
+                Foreground = Application.Current.Resources["TextFillColorSecondaryBrush"] as Microsoft.UI.Xaml.Media.Brush,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(12, 0, 0, 0)
+            };
+
+            var selectAllCheckBox = new CheckBox
+            {
+                Content = "Seleziona Tutti",
+                IsChecked = true,
+                FontSize = 11,
+                VerticalAlignment = VerticalAlignment.Center,
+                Visibility = Visibility.Collapsed
+            };
+
+            var itemsListView = new ListView
+            {
+                ItemsSource = batchItems,
+                SelectionMode = ListViewSelectionMode.None,
+                Height = 180,
+                BorderThickness = new Thickness(1),
+                BorderBrush = Application.Current.Resources["CardStrokeColorDefaultBrush"] as Microsoft.UI.Xaml.Media.Brush,
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(4),
+                Visibility = Visibility.Collapsed
+            };
+
+            if (RootGrid.Resources.TryGetValue("BatchItemTemplate", out var templateObj) && templateObj is DataTemplate dt)
+            {
+                itemsListView.ItemTemplate = dt;
+            }
+
+            analyzeButton.Click += (s, args) =>
+            {
+                batchItems.Clear();
+                string text = inputTextBox.Text ?? string.Empty;
+                var matches = BatchUrlRegex.Matches(text);
+                var seen = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (Match m in matches)
+                {
+                    string url = m.Value.Trim();
+                    if (!string.IsNullOrEmpty(url) && seen.Add(url))
+                    {
+                        string filename = BatchDownloadItem.DeduceFilename(url);
+                        string category = BatchDownloadItem.DeduceCategory(filename, url);
+                        batchItems.Add(new BatchDownloadItem
+                        {
+                            Url = url,
+                            Filename = filename,
+                            Category = category,
+                            IsSelected = true
+                        });
+                    }
+                }
+
+                if (batchItems.Count > 0)
+                {
+                    countTextBlock.Text = $"Trovati {batchItems.Count} link validi.";
+                    itemsListView.Visibility = Visibility.Visible;
+                    selectAllCheckBox.Visibility = Visibility.Visible;
+                    selectAllCheckBox.IsChecked = true;
+                }
+                else
+                {
+                    countTextBlock.Text = "Nessun URL valido trovato nel testo inserito.";
+                    itemsListView.Visibility = Visibility.Collapsed;
+                    selectAllCheckBox.Visibility = Visibility.Collapsed;
+                }
+            };
+
+            selectAllCheckBox.Click += (s, args) =>
+            {
+                bool isChecked = selectAllCheckBox.IsChecked ?? false;
+                foreach (var item in batchItems)
+                {
+                    item.IsSelected = isChecked;
+                }
+            };
+
+            var analyzeRow = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 4,
+                Children = { analyzeButton, countTextBlock }
+            };
+
+            var listHeader = new Grid
+            {
+                Margin = new Thickness(0, 4, 0, 0),
+                Children = { selectAllCheckBox }
+            };
+
+            var dialogContent = new StackPanel
+            {
+                Spacing = 10,
+                Width = 520,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = "Incolla un testo o un elenco di link per estrarre e accodare i file in blocco:",
+                        FontSize = 12,
+                        Foreground = Application.Current.Resources["TextFillColorSecondaryBrush"] as Microsoft.UI.Xaml.Media.Brush
+                    },
+                    inputTextBox,
+                    analyzeRow,
+                    listHeader,
+                    itemsListView
+                }
+            };
+
+            var dialog = new ContentDialog
+            {
+                Title = "Download Batch",
+                PrimaryButtonText = "Avvia Selezionati",
+                SecondaryButtonText = "Aggiungi in Coda",
+                CloseButtonText = "Annulla",
+                DefaultButton = ContentDialogButton.Primary,
+                Content = dialogContent
+            };
+
+            PrepareDialog(dialog);
+
+            var result = await dialog.ShowAsync();
+            var selectedItems = batchItems.Where(i => i.IsSelected).ToList();
+
+            if (result == ContentDialogResult.Primary && selectedItems.Count > 0)
+            {
+                foreach (var item in selectedItems)
+                {
+                    await ViewModel.AddDownloadWithParamsAsync(item.Url, item.Category, startPaused: false, filename: item.Filename);
+                }
+                ViewModel.StatusMessage = $"Avviati {selectedItems.Count} download batch.";
+            }
+            else if (result == ContentDialogResult.Secondary && selectedItems.Count > 0)
+            {
+                foreach (var item in selectedItems)
+                {
+                    await ViewModel.AddDownloadWithParamsAsync(item.Url, item.Category, startPaused: true, filename: item.Filename);
+                }
+                ViewModel.StatusMessage = $"Aggiunti in coda {selectedItems.Count} download batch.";
             }
         }
         finally
@@ -668,13 +863,13 @@ public sealed partial class MainWindow : Window
                 Title = "Dettagli del Download",
                 CloseButtonText = "Chiudi",
                 DefaultButton = ContentDialogButton.Close,
-                XamlRoot = Content.XamlRoot,
                 Content = new ScrollViewer
                 {
                     MaxHeight = 420,
                     Content = contentPanel
                 }
             };
+            PrepareDialog(dialog);
 
             await dialog.ShowAsync();
         }

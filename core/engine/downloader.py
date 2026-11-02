@@ -6,14 +6,35 @@ import aiohttp
 
 from core.network.models import NetworkAdapter
 from core.network.session_pool import MultiInterfaceSessionPool
-from .probe import ResourceProbe, RemoteResourceInfo, DEFAULT_HTTP_HEADERS, get_browser_headers
+from .probe import (
+    ResourceProbe,
+    RemoteResourceInfo,
+    DEFAULT_HTTP_HEADERS,
+    get_browser_headers,
+    sanitize_headers_for_impersonation,
+)
 from .storage import StorageEngine
 from .chunk_planner import ChunkPlanner, Chunk
-from .worker import ChunkWorker
 from .host_coordinator import HostCoordinator
 from .speed_limiter import SpeedLimiter
 
+try:
+    from curl_cffi.requests import AsyncSession as CurlAsyncSession
+    HAVE_CURL_CFFI = True
+except ImportError:
+    HAVE_CURL_CFFI = False
+
 logger = logging.getLogger(__name__)
+
+
+class DownloadError(Exception):
+    """Raised when a download request fails with an HTTP error or protocol failure."""
+    pass
+
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .worker import ChunkWorker
 
 
 def is_single_connection_stream(url: str) -> bool:
@@ -82,6 +103,7 @@ class DownloadEngine:
         self._total_downloaded = 0
         self._adapter_downloaded: Dict[str, int] = {}
         self._ip_restricted_fallback = False
+        self.error_message: Optional[str] = None
 
     @property
     def target_filepath(self) -> Optional[Path]:
@@ -200,6 +222,7 @@ class DownloadEngine:
                 logger.debug("Could not save initial chunks: %s", exc)
 
         # 4. Spawn workers distributed across all active network adapters
+        from .worker import ChunkWorker
         active_adapters = self.session_pool.active_adapters
         worker_id = 0
 
@@ -246,13 +269,26 @@ class DownloadEngine:
             else:
                 if self._is_cancelled:
                     return False
+                # Collect worker errors if any worker failed
+                for w in self.workers:
+                    if getattr(w, "last_error", None):
+                        if not self.error_message:
+                            self.error_message = w.last_error
+                        break
                 logger.warning(
                     "Multi-chunk download ended with incomplete chunks for %s. Automatically falling back to single-stream sequential download.",
                     filepath.name,
                 )
                 if self.storage and self.storage.is_open:
                     await self.storage.flush()
-                return await self._download_single_stream(primary_session, filepath)
+                single_success = await self._download_single_stream(primary_session, filepath)
+                if not single_success and self._total_downloaded == 0:
+                    if not self.error_message:
+                        for w in self.workers:
+                            if getattr(w, "last_error", None):
+                                self.error_message = w.last_error
+                                break
+                return single_success
         finally:
             # 6. Always flush pending disk writes and close storage
             if self.storage and self.storage.is_open:
@@ -291,7 +327,7 @@ class DownloadEngine:
         if not self.storage or not self.storage.is_open:
             self.storage = StorageEngine(
                 filepath=filepath,
-                total_size=self.info.total_size,
+                total_size=self.info.total_size if self.info else 0,
                 sparse=True,
             )
             await self.storage.open()
@@ -302,28 +338,29 @@ class DownloadEngine:
             user_agent=self.user_agent,
             custom_headers=self.custom_headers,
         )
-        existing_offset = 0
-        is_preallocated = bool(self.storage and getattr(self.storage, "bytes_written", 0) < (self.info.total_size if self.info else 1))
-        if filepath.exists() and not is_preallocated:
-            try:
-                curr_size = filepath.stat().st_size
-                if curr_size > 0 and self.info and self.info.supports_ranges and self.info.total_size > 0:
-                    if curr_size < self.info.total_size:
-                        existing_offset = curr_size
-                        single_headers["Range"] = f"bytes={existing_offset}-"
-                        logger.info("Resuming single-stream from byte %d for %s", existing_offset, filepath.name)
-                    elif curr_size >= self.info.total_size:
-                        logger.info("File %s already complete (%d bytes)", filepath.name, curr_size)
-                        return True
-            except Exception as exc:
-                logger.debug("Could not inspect existing file size: %s", exc)
+        # Strip Range header to ensure clean sequential download
+        single_headers.pop("Range", None)
+        single_headers.pop("range", None)
 
         try:
             await self.host_coordinator.wait_if_blocked(self.host)
             async with self.host_coordinator.connection_slot(self.host):
                 async with session.get(self.url, headers=single_headers) as resp:
                     if resp.status not in (200, 206):
-                        logger.error("Single-stream download failed with HTTP %d", resp.status)
+                        if resp.status in (401, 403):
+                            logger.warning(
+                                "Single-stream aiohttp challenged with HTTP %d. Attempting curl_cffi fallback with impersonate='chrome'...",
+                                resp.status,
+                            )
+                            if HAVE_CURL_CFFI:
+                                curl_ok = await self._download_single_stream_curl(filepath)
+                                if curl_ok:
+                                    return True
+                            self.error_message = "HTTP 403 Forbidden (Cloudflare WAF)" if resp.status == 403 else f"HTTP {resp.status} Unauthorized"
+                        else:
+                            reason = getattr(resp, "reason", "")
+                            self.error_message = f"HTTP {resp.status} {reason}".strip()
+                        logger.error("Single-stream download failed with HTTP %d: %s", resp.status, self.error_message)
                         return False
 
                     cl = resp.headers.get("Content-Length")
@@ -335,8 +372,7 @@ class DownloadEngine:
                     if not primary_adapter and getattr(self.session_pool, "all_adapters", None):
                         primary_adapter = self.session_pool.all_adapters[0]
 
-                    # If server responded with 200 OK (not 206 Partial Content), write from 0
-                    offset = 0 if resp.status == 200 else existing_offset
+                    offset = 0
                     while not self._is_cancelled:
                         block = await resp.content.read(256 * 1024)
                         if not block:
@@ -354,11 +390,83 @@ class DownloadEngine:
             return True
         except Exception as exc:
             logger.error("Single-stream download error: %s", exc)
+            if not self.error_message:
+                self.error_message = str(exc)
+            if HAVE_CURL_CFFI and self._total_downloaded == 0:
+                logger.info("Attempting curl_cffi fallback after single-stream exception: %s", exc)
+                curl_ok = await self._download_single_stream_curl(filepath)
+                if curl_ok:
+                    return True
             return False
         finally:
             if self.storage and self.storage.is_open:
                 await self.storage.flush()
                 await self.storage.close()
+
+    async def _download_single_stream_curl(self, filepath: Path) -> bool:
+        """Sequential single-stream download fallback via curl_cffi with TLS browser impersonation."""
+        if not HAVE_CURL_CFFI:
+            return False
+        try:
+            cf_headers = get_browser_headers(
+                self.url,
+                referer=self.referer,
+                cookies=self.cookies,
+                user_agent=self.user_agent,
+                custom_headers=self.custom_headers,
+            )
+            cf_headers.pop("Range", None)
+            cf_headers.pop("range", None)
+            req_headers = sanitize_headers_for_impersonation(cf_headers)
+
+            await self.host_coordinator.wait_if_blocked(self.host)
+            async with self.host_coordinator.connection_slot(self.host):
+                async with CurlAsyncSession(impersonate="chrome") as curl_session:
+                    curl_resp = await curl_session.get(self.url, headers=req_headers, stream=True, allow_redirects=True)
+                    if curl_resp.status_code >= 400:
+                        reason = getattr(curl_resp, "reason", "")
+                        if curl_resp.status_code == 403:
+                            self.error_message = "HTTP 403 Forbidden (Cloudflare WAF)"
+                        else:
+                            self.error_message = f"HTTP {curl_resp.status_code} {reason}".strip()
+                        logger.error("curl_cffi single-stream fallback failed with HTTP %d: %s", curl_resp.status_code, self.error_message)
+                        return False
+
+                    if curl_resp.status_code in (200, 206):
+                        cl = curl_resp.headers.get("content-length")
+                        if cl and cl.isdigit() and (not self.info or self.info.total_size <= 0):
+                            if self.info:
+                                self.info.total_size = int(cl)
+
+                        primary_adapter = getattr(self.session_pool, "primary_adapter", None)
+                        if not primary_adapter and getattr(self.session_pool, "all_adapters", None):
+                            primary_adapter = self.session_pool.all_adapters[0]
+
+                        offset = 0
+                        async for chunk_bytes in curl_resp.aiter_content(256 * 1024):
+                            if self._is_cancelled:
+                                return False
+                            if chunk_bytes:
+                                if self.speed_limiter:
+                                    await self.speed_limiter.acquire(len(chunk_bytes))
+                                await self.storage.write(offset, chunk_bytes)
+                                offset += len(chunk_bytes)
+                                self._on_bytes_received(len(chunk_bytes), primary_adapter)
+                                if self.on_progress:
+                                    total = (self.info.total_size if self.info else 0) or offset
+                                    pct = (offset / total * 100.0) if total > 0 else 0.0
+                                    self.on_progress(offset, total, pct)
+
+                        if hasattr(self.storage, "flush"):
+                            await self.storage.flush()
+                        logger.info("Successfully completed single-stream download via curl_cffi for %s (%d bytes)", filepath.name, offset)
+                        return True
+                    return False
+        except Exception as exc:
+            logger.error("curl_cffi single-stream fallback error: %s", exc)
+            if not self.error_message:
+                self.error_message = str(exc)
+            return False
 
     async def cancel(self) -> None:
         """Cancels active workers and closes storage."""

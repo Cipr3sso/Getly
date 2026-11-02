@@ -163,9 +163,10 @@ async def run_engine_service(download_dir: Path, port: int, pipe_name: str) -> N
         port=port,
         on_package_received=on_cnl_package,
         on_download_requested=on_download_req,
+        queue_manager=queue_manager,
     )
     await local_http_server.start()
-    logger.info("Local HTTP Server (API & CNL2) in ascolto su http://%s:%d (health: /health, add: /add)", settings.cnl.host, port)
+    logger.info("Local HTTP Server (API & CNL2) in ascolto su http://%s:%d (health: /health, add: /add, add_batch: /add_batch)", settings.cnl.host, port)
 
     # 4. IPC Pipe Server & 10 Hz Telemetry Dispatcher
     pipe_server = NamedPipeServer(

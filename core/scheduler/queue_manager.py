@@ -10,7 +10,7 @@ from core.cnl.models import CNLDecryptedPackage
 from core.engine.downloader import DownloadEngine
 from .task import DownloadTask, DownloadStatus
 from .state_store import StateStore
-from .categories import detect_category, get_category_subfolder, CATEGORY_TORRENTS
+from .categories import detect_category, get_category_subfolder, CATEGORY_TORRENTS, CATEGORY_ALIASES
 from core.extensions.manager import ExtensionManager
 
 logger = logging.getLogger(__name__)
@@ -47,6 +47,11 @@ class QueueManager:
         self._semaphore = asyncio.Semaphore(max_active_tasks)
         self._manager_task: Optional[asyncio.Task] = None
         self._is_running = False
+
+        # Confirmation threshold and auto-categorization settings
+        self.require_confirmation: bool = False
+        self.confirmation_threshold_mb: int = 100
+        self.auto_categorize: bool = True
 
     @property
     def is_running(self) -> bool:
@@ -191,18 +196,31 @@ class QueueManager:
         )
         resolved_task_type = "TORRENT" if is_torrent else (task_type or "HTTP")
 
-        # Detect category if not explicitly given
-        task_category = category or (CATEGORY_TORRENTS if is_torrent else detect_category(clean_filename or url))
+        # Detect category if not explicitly given, resolving aliases
+        raw_category = category
+        if raw_category and raw_category.strip().lower() in CATEGORY_ALIASES:
+            raw_category = CATEGORY_ALIASES[raw_category.strip().lower()]
+
+        task_category = raw_category or (CATEGORY_TORRENTS if is_torrent else detect_category(clean_filename or url))
 
         # Route to category subfolder if destination_dir not explicitly provided or is default
         if destination_dir is None or Path(destination_dir) == self.default_download_dir:
-            dest = get_category_subfolder(self.default_download_dir, task_category)
+            if self.auto_categorize:
+                dest = get_category_subfolder(self.default_download_dir, task_category)
+            else:
+                dest = self.default_download_dir
         else:
             dest = Path(destination_dir)
 
         dest.mkdir(parents=True, exist_ok=True)
 
-        if auto_start is False:
+        # Check confirmation threshold
+        needs_confirmation = self.require_confirmation
+        threshold_bytes = self.confirmation_threshold_mb * 1024 * 1024
+        if self.confirmation_threshold_mb > 0 and parsed_total_size > threshold_bytes:
+            needs_confirmation = True
+
+        if auto_start is False or needs_confirmation:
             initial_status = DownloadStatus.WAITING
         elif start_paused:
             initial_status = DownloadStatus.PAUSED
@@ -546,9 +564,9 @@ class QueueManager:
                     logger.info("Task %s completed: %s", task.task_id, task.filename)
                 else:
                     task.status = DownloadStatus.FAILED
-                    task.error_message = "Download ended incompletely"
+                    task.error_message = getattr(engine, "error_message", None) or "Download ended incompletely"
                     self.state_store.update_task_status(task.task_id, DownloadStatus.FAILED, task.error_message)
-                    logger.warning("Task %s failed", task.task_id)
+                    logger.warning("Task %s failed: %s", task.task_id, task.error_message)
             except asyncio.CancelledError:
                 # Handle cancellation without marking as failure if user paused/cancelled
                 if task.status not in (DownloadStatus.PAUSED, DownloadStatus.CANCELLED):

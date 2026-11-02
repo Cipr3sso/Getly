@@ -13,11 +13,12 @@ except ImportError:
     HAVE_CURL_CFFI = False
 
 from core.network.models import NetworkAdapter
-from .probe import DEFAULT_HTTP_HEADERS, get_browser_headers
+from .probe import DEFAULT_HTTP_HEADERS, get_browser_headers, sanitize_headers_for_impersonation
 from .chunk_planner import Chunk, ChunkPlanner
 from .storage import StorageEngine
 from .host_coordinator import HostCoordinator
 from .speed_limiter import SpeedLimiter
+from .downloader import DownloadError
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,7 @@ class ChunkWorker:
         self.speed_limiter = speed_limiter or SpeedLimiter.get_instance()
 
         self._is_stopped = False
+        self.last_error: Optional[str] = None
 
     def stop(self) -> None:
         self._is_stopped = True
@@ -168,6 +170,7 @@ class ChunkWorker:
                             self.url = str(resp.url)
                         # 1. Handle HTTP 429 Too Many Requests
                         if resp.status == 429:
+                            self.last_error = "HTTP 429 Too Many Requests"
                             delay = self.parse_retry_after(resp.headers.get("Retry-After"))
                             if delay is None:
                                 # Exponential backoff with jitter: min(2^attempt + random(0.5, 1.5), 30)
@@ -194,16 +197,25 @@ class ChunkWorker:
 
                         # 2. Handle HTTP 401 / 403 Forbidden (e.g. Cloudflare TLS challenge or IP lock)
                         if resp.status in (401, 403):
+                            self.last_error = "HTTP 403 Forbidden (Cloudflare WAF)" if resp.status == 403 else f"HTTP {resp.status} Unauthorized"
                             logger.warning(
-                                "Worker %d [%s] received HTTP %d. Attempting TLS impersonation (chrome124) fallback...",
+                                "Worker %d [%s] received HTTP %d. Attempting TLS impersonation (chrome) fallback...",
                                 self.worker_id,
                                 self.adapter.name,
                                 resp.status,
                             )
                             if HAVE_CURL_CFFI:
                                 try:
-                                    async with CurlAsyncSession(impersonate="chrome124") as curl_session:
-                                        curl_resp = await curl_session.get(self.url, headers=headers, stream=True)
+                                    req_headers = sanitize_headers_for_impersonation(headers)
+                                    async with CurlAsyncSession(impersonate="chrome") as curl_session:
+                                        curl_resp = await curl_session.get(self.url, headers=req_headers, stream=True, allow_redirects=True)
+                                        if curl_resp.status_code >= 400:
+                                            reason = getattr(curl_resp, "reason", "")
+                                            err_msg = f"HTTP {curl_resp.status_code} {reason}".strip()
+                                            if curl_resp.status_code == 403:
+                                                err_msg = "HTTP 403 Forbidden (Cloudflare WAF)"
+                                            self.last_error = err_msg
+                                            raise DownloadError(err_msg)
                                         if curl_resp.status_code in (200, 206):
                                             write_offset = start_offset
                                             async for chunk_bytes in curl_resp.aiter_content(self.read_buffer_size):
@@ -225,7 +237,11 @@ class ChunkWorker:
                                                 chunk.chunk_id,
                                             )
                                             return True
+                                except DownloadError as de:
+                                    self.last_error = str(de)
+                                    logger.warning("Worker %d curl_cffi fallback failed: %s", self.worker_id, de)
                                 except Exception as curl_err:
+                                    self.last_error = str(curl_err)
                                     logger.warning("Worker %d curl_cffi fallback failed: %s", self.worker_id, curl_err)
 
                             if self.on_ip_forbidden:
@@ -235,6 +251,7 @@ class ChunkWorker:
 
                         # 3. Handle Transient Server Errors (500, 502, 503, 504)
                         if resp.status in (500, 502, 503, 504):
+                            self.last_error = f"HTTP {resp.status} Server Error"
                             delay = self.parse_retry_after(resp.headers.get("Retry-After"))
                             if delay is None:
                                 delay = min(2 ** attempt + random.uniform(0.5, 1.5), 30.0)
@@ -253,6 +270,7 @@ class ChunkWorker:
 
                         # 4. Handle unexpected non-success status
                         if resp.status not in (200, 206):
+                            self.last_error = f"HTTP {resp.status}"
                             logger.warning(
                                 "Worker %d [%s] unexpected HTTP %d for chunk %d (range %d-%d)",
                                 self.worker_id,
@@ -318,6 +336,7 @@ class ChunkWorker:
                 asyncio.TimeoutError,
                 OSError,
             ) as exc:
+                self.last_error = str(exc)
                 delay = min(2 ** attempt + random.uniform(0.5, 1.5), 15.0)
                 logger.warning(
                     "Worker %d [%s] connection/payload error on chunk %d: %s. "

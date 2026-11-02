@@ -90,20 +90,27 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
 
-                        <!-- Live Speed & ETA (Normal) -->
-                        <StackPanel Grid.Column="0" x:Name="NormalSpeedPanel" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                            <TextBlock x:Name="SpeedIconTextBlock" Text="⬇" FontSize="11" Foreground="#60A5FA" />
-                            <TextBlock x:Name="SpeedTextBlock" Text="0 B/s" FontSize="11" FontWeight="Medium" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-                            <TextBlock Text="•" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Margin="2,0,2,0" />
-                            <TextBlock Text="ETA:" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            <TextBlock x:Name="EtaTextBlock" Text="--:--" FontSize="11" FontWeight="Medium" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
-                        </StackPanel>
+                        <!-- Left column: speed or error message with CharacterEllipsis and Margin 0,0,12,0 -->
+                        <Grid Grid.Column="0" Margin="0,0,12,0" VerticalAlignment="Center">
+                            <!-- Live Speed & ETA (Normal) -->
+                            <StackPanel x:Name="NormalSpeedPanel" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                <TextBlock x:Name="SpeedIconTextBlock" Text="⬇" FontSize="11" Foreground="#60A5FA" />
+                                <TextBlock x:Name="SpeedTextBlock" Text="0 B/s" FontSize="11" FontWeight="Medium" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                                <TextBlock Text="•" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Margin="2,0,2,0" />
+                                <TextBlock Text="ETA:" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <TextBlock x:Name="EtaTextBlock" Text="--:--" FontSize="11" FontWeight="Medium" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                            </StackPanel>
 
-                        <!-- Error Message Panel (Red, fallback on failure) -->
-                        <StackPanel Grid.Column="0" x:Name="ErrorSpeedPanel" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Visibility="Collapsed">
-                            <FontIcon Glyph="&#xEB90;" FontSize="11" Foreground="#E81123" VerticalAlignment="Center" />
-                            <TextBlock x:Name="ErrorMessageTextBlock" Text="Connessione fallita - CDN" FontSize="11" FontWeight="Medium" Foreground="#E81123" TextTrimming="CharacterEllipsis" MaxLines="1" />
-                        </StackPanel>
+                            <!-- Error Message Panel (Red, fallback on failure) -->
+                            <Grid x:Name="ErrorSpeedPanel" Visibility="Collapsed">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <FontIcon Grid.Column="0" Glyph="&#xEB90;" FontSize="11" Foreground="#E81123" VerticalAlignment="Center" Margin="0,0,4,0" />
+                                <TextBlock Grid.Column="1" x:Name="ErrorMessageTextBlock" Text="Connessione fallita - CDN" FontSize="11" FontWeight="Medium" Foreground="#E81123" TextTrimming="CharacterEllipsis" MaxLines="1" VerticalAlignment="Center" />
+                            </Grid>
+                        </Grid>
 
                         <TextBlock Grid.Column="1" x:Name="StatusBadgeTextBlock" Text="In download" FontSize="10" FontWeight="SemiBold" Foreground="#3B82F6" VerticalAlignment="Center" />
                     </Grid>
@@ -181,7 +188,7 @@
                 <Grid x:Name="ExpandedListPanel" Grid.Row="3" Margin="0,8,0,0" Visibility="Collapsed">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
-                        <RowDefinition Height="125" />
+                        <RowDefinition Height="130" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
@@ -202,10 +209,10 @@
                                     <!-- CheckBox for batch selection -->
                                     <CheckBox Grid.Column="0" IsChecked="{x:Bind IsSelected, Mode=TwoWay}" MinWidth="26" Margin="0,0,6,0" VerticalAlignment="Center" />
 
-                                    <!-- Filename & Category -->
+                                    <!-- Filename & Weight in MB -->
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
                                         <TextBlock Text="{x:Bind Filename}" FontSize="11" FontWeight="Medium" Foreground="{ThemeResource TextFillColorPrimaryBrush}" TextTrimming="CharacterEllipsis" MaxLines="1" />
-                                        <TextBlock Text="{x:Bind DownloadedFormatted}" FontSize="9" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{x:Bind SizeMbFormatted}" FontSize="9" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextTrimming="CharacterEllipsis" />
                                     </StackPanel>
 
                                     <!-- Status / Progress Badge -->

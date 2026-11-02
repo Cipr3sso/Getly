@@ -21,7 +21,8 @@ public sealed partial class FloatingDownloadWindow : Window
     private DispatcherTimer? _autoCloseTimer;
     private bool _isExpanded;
 
-    public ObservableCollection<TaskItemViewModel> MonitoredTasks { get; } = new();
+    public ObservableCollection<TaskItemViewModel> ActiveTasks { get; } = new();
+    public ObservableCollection<TaskItemViewModel> MonitoredTasks => ActiveTasks;
     public int CurrentIndex { get; private set; }
 
     public FloatingDownloadWindow(MainViewModel viewModel)
@@ -47,7 +48,7 @@ public sealed partial class FloatingDownloadWindow : Window
         SetTitleBar(DragRegion);
 
         // 4. Bind ListView ItemsSource
-        TasksListView.ItemsSource = MonitoredTasks;
+        TasksListView.ItemsSource = ActiveTasks;
 
         // 5. Position window at bottom-right above the taskbar
         PositionWindow();
@@ -69,7 +70,7 @@ public sealed partial class FloatingDownloadWindow : Window
         try
         {
             int width = 380;
-            int height = _isExpanded ? 340 : 165;
+            int height = _isExpanded ? 350 : 175;
             AppWindow.Resize(new SizeInt32(width, height));
 
             var displayArea = DisplayArea.Primary;
@@ -77,8 +78,8 @@ public sealed partial class FloatingDownloadWindow : Window
             {
                 int posX = displayArea.WorkArea.X + displayArea.WorkArea.Width - 400;
                 int posY = _isExpanded
-                    ? displayArea.WorkArea.Y + displayArea.WorkArea.Height - 360
-                    : displayArea.WorkArea.Y + displayArea.WorkArea.Height - 185;
+                    ? displayArea.WorkArea.Y + displayArea.WorkArea.Height - 370
+                    : displayArea.WorkArea.Y + displayArea.WorkArea.Height - 195;
                 AppWindow.Move(new PointInt32(posX, posY));
             }
         }
@@ -93,11 +94,11 @@ public sealed partial class FloatingDownloadWindow : Window
     /// </summary>
     public void AddOrUpdateTask(TaskItemViewModel task)
     {
-        int existingIndex = MonitoredTasks.IndexOf(task);
+        int existingIndex = ActiveTasks.IndexOf(task);
         if (existingIndex < 0)
         {
-            MonitoredTasks.Add(task);
-            CurrentIndex = MonitoredTasks.Count - 1;
+            ActiveTasks.Add(task);
+            CurrentIndex = ActiveTasks.Count - 1;
         }
         else
         {
@@ -123,9 +124,9 @@ public sealed partial class FloatingDownloadWindow : Window
             _currentTask.PropertyChanged -= OnTaskPropertyChanged;
         }
 
-        if (CurrentIndex >= 0 && CurrentIndex < MonitoredTasks.Count)
+        if (CurrentIndex >= 0 && CurrentIndex < ActiveTasks.Count)
         {
-            _currentTask = MonitoredTasks[CurrentIndex];
+            _currentTask = ActiveTasks[CurrentIndex];
             _currentTask.PropertyChanged += OnTaskPropertyChanged;
         }
         else
@@ -137,18 +138,18 @@ public sealed partial class FloatingDownloadWindow : Window
     private void RemoveTaskFromMonitoring(TaskItemViewModel task)
     {
         task.PropertyChanged -= OnTaskPropertyChanged;
-        MonitoredTasks.Remove(task);
+        ActiveTasks.Remove(task);
 
-        if (MonitoredTasks.Count == 0)
+        if (ActiveTasks.Count == 0)
         {
             _currentTask = null;
             this.Close();
             return;
         }
 
-        if (CurrentIndex >= MonitoredTasks.Count)
+        if (CurrentIndex >= ActiveTasks.Count)
         {
-            CurrentIndex = MonitoredTasks.Count - 1;
+            CurrentIndex = ActiveTasks.Count - 1;
         }
 
         BindCurrentTask();
@@ -163,7 +164,7 @@ public sealed partial class FloatingDownloadWindow : Window
     private void UpdateUI()
     {
         // 1. Navigation Scroller & Counter
-        int totalCount = MonitoredTasks.Count;
+        int totalCount = ActiveTasks.Count;
         TaskCounterTextBlock.Text = $"{CurrentIndex + 1}/{Math.Max(1, totalCount)}";
         PrevTaskButton.IsEnabled = CurrentIndex > 0;
         NextTaskButton.IsEnabled = CurrentIndex < totalCount - 1;
@@ -325,7 +326,7 @@ public sealed partial class FloatingDownloadWindow : Window
 
     private void NextTaskButton_Click(object sender, RoutedEventArgs e)
     {
-        if (CurrentIndex < MonitoredTasks.Count - 1)
+        if (CurrentIndex < ActiveTasks.Count - 1)
         {
             CurrentIndex++;
             BindCurrentTask();
@@ -418,7 +419,7 @@ public sealed partial class FloatingDownloadWindow : Window
     private void SelectAllCheckBox_Click(object sender, RoutedEventArgs e)
     {
         bool isChecked = SelectAllCheckBox.IsChecked ?? false;
-        foreach (var task in MonitoredTasks)
+        foreach (var task in ActiveTasks)
         {
             task.IsSelected = isChecked;
         }
@@ -426,7 +427,7 @@ public sealed partial class FloatingDownloadWindow : Window
 
     private void StartSelectedButton_Click(object sender, RoutedEventArgs e)
     {
-        var selected = MonitoredTasks.Where(t => t.IsSelected).ToList();
+        var selected = ActiveTasks.Where(t => t.IsSelected).ToList();
         foreach (var t in selected)
         {
             _viewModel.ResumeTaskCommand.Execute(t);
@@ -436,7 +437,7 @@ public sealed partial class FloatingDownloadWindow : Window
 
     private void DeleteSelectedButton_Click(object sender, RoutedEventArgs e)
     {
-        var selected = MonitoredTasks.Where(t => t.IsSelected).ToList();
+        var selected = ActiveTasks.Where(t => t.IsSelected).ToList();
         foreach (var t in selected)
         {
             _viewModel.DeleteTaskCommand.Execute(t);
@@ -448,7 +449,7 @@ public sealed partial class FloatingDownloadWindow : Window
     {
         if (TasksListView.SelectedItem is TaskItemViewModel clicked)
         {
-            int idx = MonitoredTasks.IndexOf(clicked);
+            int idx = ActiveTasks.IndexOf(clicked);
             if (idx >= 0)
             {
                 CurrentIndex = idx;
@@ -501,7 +502,7 @@ public sealed partial class FloatingDownloadWindow : Window
             _currentTask.PropertyChanged -= OnTaskPropertyChanged;
             _currentTask = null;
         }
-        MonitoredTasks.Clear();
+        ActiveTasks.Clear();
     }
 
     private static Windows.UI.Color ParseColor(string hex)

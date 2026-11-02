@@ -310,6 +310,24 @@ public sealed class IpcClient : IAsyncDisposable, IDisposable
         await InvokeAsync("system.set_speed_limit", new { limit_bps = bytesPerSec }, cancellationToken: cancellationToken);
     }
 
+    public async Task SetSettingsAsync(
+        bool requireConfirmation,
+        int confirmationThresholdMb,
+        bool autoCategorize,
+        string? defaultDownloadDir = null,
+        int? maxConcurrentConnections = null,
+        CancellationToken cancellationToken = default)
+    {
+        await InvokeAsync("system.set_settings", new
+        {
+            require_confirmation = requireConfirmation,
+            confirmation_threshold_mb = confirmationThresholdMb,
+            auto_categorize = autoCategorize,
+            default_download_dir = defaultDownloadDir,
+            max_concurrent_connections = maxConcurrentConnections
+        }, cancellationToken: cancellationToken);
+    }
+
     public async Task<SystemStatsDto> GetStatsAsync(CancellationToken cancellationToken = default)
     {
         var result = await InvokeAsync("system.get_stats", null, cancellationToken: cancellationToken);

@@ -89,6 +89,7 @@ class NamedPipeServer:
             "system.set_speed_limit": self._rpc_system_set_speed_limit,
             "system.get_stats": self._rpc_system_get_stats,
             "system.toggle_adapter": self._rpc_system_toggle_adapter,
+            "system.set_settings": self._rpc_system_set_settings,
         }
 
     @property
@@ -374,6 +375,30 @@ class NamedPipeServer:
             success = self.session_pool.disable_adapter(adapter_name)
         return {"adapter_name": adapter_name, "enabled": enabled, "success": success}
 
+    def _rpc_system_set_settings(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Updates QueueManager settings from WinUI 3 client:
+        - require_confirmation: bool
+        - confirmation_threshold_mb: int
+        - auto_categorize: bool
+        """
+        if "require_confirmation" in params:
+            self.queue_manager.require_confirmation = bool(params["require_confirmation"])
+        if "confirmation_threshold_mb" in params:
+            try:
+                self.queue_manager.confirmation_threshold_mb = int(params["confirmation_threshold_mb"])
+            except (ValueError, TypeError):
+                pass
+        if "auto_categorize" in params:
+            self.queue_manager.auto_categorize = bool(params["auto_categorize"])
+
+        return {
+            "status": "ok",
+            "require_confirmation": getattr(self.queue_manager, "require_confirmation", False),
+            "confirmation_threshold_mb": getattr(self.queue_manager, "confirmation_threshold_mb", 100),
+            "auto_categorize": getattr(self.queue_manager, "auto_categorize", True),
+        }
+
     def _rpc_system_get_stats(self, params: Dict[str, Any]) -> Dict[str, Any]:
         # Aggregate speeds across all tasks
         all_tasks = self.queue_manager.get_all_tasks()
@@ -420,6 +445,9 @@ class NamedPipeServer:
             "download_speed_bps": total_dl,
             "upload_speed_bps": total_ul,
             "speed_limit_bps": SpeedLimiter.get_instance().get_limit(),
+            "require_confirmation": getattr(self.queue_manager, "require_confirmation", False),
+            "confirmation_threshold_mb": getattr(self.queue_manager, "confirmation_threshold_mb", 100),
+            "auto_categorize": getattr(self.queue_manager, "auto_categorize", True),
             "memory": memory_stats,
             "task_counts": counts,
         }

@@ -30,6 +30,30 @@ ALL_CATEGORIES: List[str] = [
     CATEGORY_OTHER,
 ]
 
+CATEGORY_ALIASES: Dict[str, str] = {
+    "archivi": CATEGORY_COMPRESSED,
+    "archivio": CATEGORY_COMPRESSED,
+    "archive": CATEGORY_COMPRESSED,
+    "archives": CATEGORY_COMPRESSED,
+    "compressi": CATEGORY_COMPRESSED,
+    "compressed": CATEGORY_COMPRESSED,
+    "programmi": CATEGORY_PROGRAMS,
+    "programs": CATEGORY_PROGRAMS,
+    "software": CATEGORY_PROGRAMS,
+    "video": CATEGORY_VIDEO,
+    "videos": CATEGORY_VIDEO,
+    "audio": CATEGORY_AUDIO,
+    "music": CATEGORY_AUDIO,
+    "documenti": CATEGORY_DOCUMENTS,
+    "documents": CATEGORY_DOCUMENTS,
+    "immagini": CATEGORY_IMAGES_ISO,
+    "immagini_iso": CATEGORY_IMAGES_ISO,
+    "iso": CATEGORY_IMAGES_ISO,
+    "images": CATEGORY_IMAGES_ISO,
+    "torrents": CATEGORY_TORRENTS,
+    "torrent": CATEGORY_TORRENTS,
+}
+
 # Mapping extension (lowercase with leading dot) -> category
 EXTENSION_MAP: Dict[str, str] = {
     # Compressi
@@ -203,6 +227,8 @@ def get_category_subfolder(base_dir: Path, category: str) -> Path:
     Returns the dedicated subfolder inside base_dir for the given category.
     Example: base_dir / 'Video'
     """
-    sub_name = category if category in ALL_CATEGORIES else CATEGORY_OTHER
+    cat_clean = (category or "").strip().lower()
+    resolved = CATEGORY_ALIASES.get(cat_clean, category)
+    sub_name = resolved if resolved in ALL_CATEGORIES else CATEGORY_OTHER
     folder = Path(base_dir) / sub_name
     return folder

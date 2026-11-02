@@ -146,8 +146,8 @@ class MultiInterfaceSessionPool:
             headers=DEFAULT_SESSION_HEADERS,
         )
 
-    def create_impersonated_session(self, impersonate: str = "chrome124") -> Optional[Any]:
-        """Creates a session configured with TLS browser fingerprint impersonation (e.g. Chrome 124)."""
+    def create_impersonated_session(self, impersonate: str = "chrome") -> Optional[Any]:
+        """Creates a session configured with TLS browser fingerprint impersonation (e.g. Chrome)."""
         if HAVE_CURL_CFFI:
             return CurlAsyncSession(impersonate=impersonate)
         return None
