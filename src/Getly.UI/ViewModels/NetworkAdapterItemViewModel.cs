@@ -33,7 +33,10 @@ public partial class NetworkAdapterItemViewModel : ObservableObject
     private double _uploadSpeedBps;
 
     [ObservableProperty]
-    private string _liveThroughputFormatted = "⬇ 0 B/s • ⬆ 0 B/s";
+    private string _liveThroughputFormatted = "Inattiva (0 B/s)";
+
+    [ObservableProperty]
+    private string _liveThroughputColor = "#9CA3AF";
 
     [ObservableProperty]
     private bool _isEnabled = true;
@@ -42,13 +45,13 @@ public partial class NetworkAdapterItemViewModel : ObservableObject
     private string _statusDisplay = "Pronta";
 
     [ObservableProperty]
-    private string _statusColor = "#107C41"; // Emerald Green
+    private string _statusColor = "#10B981"; // Emerald Green
 
     [ObservableProperty]
     private string _typeBadge = "LAN / Wi-Fi";
 
     [ObservableProperty]
-    private string _typeBadgeColor = "#0078D4";
+    private string _typeBadgeColor = "#3B82F6";
 
     public NetworkAdapterItemViewModel() { }
 
@@ -68,7 +71,17 @@ public partial class NetworkAdapterItemViewModel : ObservableObject
         IsEnabled = dto.IsEnabled;
         DownloadSpeedBps = dto.DownloadSpeedBps;
         UploadSpeedBps = dto.UploadSpeedBps;
-        LiveThroughputFormatted = $"⬇ {TaskItemViewModel.FormatBytes((long)dto.DownloadSpeedBps)}/s  ⬆ {TaskItemViewModel.FormatBytes((long)dto.UploadSpeedBps)}/s";
+
+        if (dto.DownloadSpeedBps > 0 || dto.UploadSpeedBps > 0)
+        {
+            LiveThroughputFormatted = $"⬇ {TaskItemViewModel.FormatBytes((long)dto.DownloadSpeedBps)}/s  ⬆ {TaskItemViewModel.FormatBytes((long)dto.UploadSpeedBps)}/s";
+            LiveThroughputColor = "#10B981"; // Active vibrant green
+        }
+        else
+        {
+            LiveThroughputFormatted = "Inattiva (0 B/s)";
+            LiveThroughputColor = "#9CA3AF"; // Idle gray
+        }
 
         SpeedFormatted = dto.SpeedMbps.HasValue && dto.SpeedMbps.Value > 0
             ? $"{dto.SpeedMbps.Value:0} Mbps"
@@ -77,17 +90,17 @@ public partial class NetworkAdapterItemViewModel : ObservableObject
         if (IsVpn)
         {
             TypeBadge = "VPN NordLynx / Killswitch";
-            TypeBadgeColor = "#107C41";
+            TypeBadgeColor = "#10B981";
         }
         else if (DisplayName.Contains("Wi-Fi", System.StringComparison.OrdinalIgnoreCase) || Name.Contains("Wi-Fi", System.StringComparison.OrdinalIgnoreCase))
         {
             TypeBadge = "Wi-Fi";
-            TypeBadgeColor = "#0078D4";
+            TypeBadgeColor = "#3B82F6";
         }
         else
         {
             TypeBadge = "Ethernet";
-            TypeBadgeColor = "#D83B01";
+            TypeBadgeColor = "#F97316";
         }
 
         if (!IsUp)
@@ -98,12 +111,12 @@ public partial class NetworkAdapterItemViewModel : ObservableObject
         else if (!IsEnabled)
         {
             StatusDisplay = "Esclusa dal pool";
-            StatusColor = "#D83B01";
+            StatusColor = "#EF4444";
         }
         else if (IsPrimary)
         {
             StatusDisplay = "Principale (Gateway predefinito)";
-            StatusColor = "#107C41";
+            StatusColor = "#10B981";
         }
         else
         {

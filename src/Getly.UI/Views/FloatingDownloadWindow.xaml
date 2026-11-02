@@ -47,7 +47,7 @@
                     <Border Grid.Column="1" x:Name="DragRegion" Background="Transparent" VerticalAlignment="Center">
                         <StackPanel Spacing="1">
                             <TextBlock x:Name="FileNameTextBlock" Text="Download in corso" FontWeight="SemiBold" FontSize="12" Foreground="{ThemeResource TextFillColorPrimaryBrush}" TextTrimming="CharacterEllipsis" MaxLines="1" />
-                            <TextBlock x:Name="SourceUrlTextBlock" Text="" FontSize="10" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextTrimming="CharacterEllipsis" MaxLines="1" />
+                            <TextBlock x:Name="SourceUrlTextBlock" Text="" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" MaxLines="1" />
                         </StackPanel>
                     </Border>
 
@@ -122,8 +122,8 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                            <FontIcon Glyph="&#xED25;" FontSize="10" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" />
-                            <TextBlock x:Name="DestinationPathTextBlock" Text="Cartella download" FontSize="10" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextTrimming="CharacterEllipsis" MaxWidth="240" VerticalAlignment="Center" />
+                            <FontIcon Glyph="&#xED25;" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
+                            <TextBlock x:Name="DestinationPathTextBlock" Text="Cartella download" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" MaxWidth="240" VerticalAlignment="Center" />
                         </StackPanel>
                         <HyperlinkButton Grid.Column="1" x:Name="ChangeFolderButton" Content="Modifica" FontSize="10" Padding="4,0" Margin="4,0,0,0" VerticalAlignment="Center" Click="ChangeFolderButton_Click" ToolTipService.ToolTip="Seleziona un'altra cartella" />
                     </Grid>
@@ -212,7 +212,7 @@
                                     <!-- Filename & Weight in MB -->
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
                                         <TextBlock Text="{x:Bind Filename}" FontSize="11" FontWeight="Medium" Foreground="{ThemeResource TextFillColorPrimaryBrush}" TextTrimming="CharacterEllipsis" MaxLines="1" />
-                                        <TextBlock Text="{x:Bind SizeMbFormatted}" FontSize="9" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{x:Bind SizeMbFormatted}" FontSize="9" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
                                     </StackPanel>
 
                                     <!-- Status / Progress Badge -->

@@ -190,9 +190,11 @@
                     <!-- Downloads ListView -->
                     <ListView
                         Grid.Row="2"
+                        x:Name="DownloadsListView"
                         ItemsSource="{x:Bind ViewModel.FilteredTasks, Mode=OneWay}"
                         SelectedItem="{x:Bind ViewModel.SelectedTask, Mode=TwoWay}"
                         SelectionMode="Single"
+                        DoubleTapped="OnRowDoubleTapped"
                         Padding="0,4,0,0">
                         <ListView.ItemContainerStyle>
                             <Style TargetType="ListViewItem">
@@ -256,7 +258,7 @@
                                         <!-- File Name & Source URL -->
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2" Padding="4,0,10,0">
                                             <TextBlock Text="{x:Bind Filename, Mode=OneWay}" FontWeight="SemiBold" FontSize="12" Foreground="{ThemeResource TextFillColorPrimaryBrush}" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{x:Bind Url, Mode=OneWay}" FontSize="10" Foreground="{ThemeResource TextFillColorTertiaryBrush}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{x:Bind Url, Mode=OneWay}" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
 
                                         <!-- Category Badge -->
@@ -270,7 +272,7 @@
                                         <!-- Live Speed & Status Description -->
                                         <StackPanel Grid.Column="4" VerticalAlignment="Center" Spacing="2">
                                             <TextBlock Text="{x:Bind SpeedFormatted, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" Foreground="{x:Bind StatusColor, Mode=OneWay}" />
-                                            <TextBlock Text="{x:Bind StatusDisplay, Mode=OneWay}" FontSize="10" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                            <TextBlock Text="{x:Bind StatusDisplay, Mode=OneWay}" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                             <HyperlinkButton
                                                 Padding="0"
                                                 Margin="0"
@@ -292,7 +294,7 @@
                                             <ProgressBar Value="{x:Bind Progress, Mode=OneWay}" Minimum="0" Maximum="100" Height="4" Foreground="{x:Bind StatusColor, Mode=OneWay}" />
                                             <Grid>
                                                 <TextBlock Text="{x:Bind ProgressPercentageFormatted, Mode=OneWay}" FontSize="10" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorPrimaryBrush}" HorizontalAlignment="Left" />
-                                                <TextBlock Text="{x:Bind EtaFormatted, Mode=OneWay}" FontSize="10" Foreground="{ThemeResource TextFillColorTertiaryBrush}" HorizontalAlignment="Right" />
+                                                <TextBlock Text="{x:Bind EtaFormatted, Mode=OneWay}" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Right" />
                                             </Grid>
                                         </StackPanel>
                                     </Grid>
@@ -399,7 +401,7 @@
                                                 <TextBlock Text="•" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                                                 <TextBlock Text="{x:Bind SpeedFormatted, Mode=OneWay}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                                 <TextBlock Text="•" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
-                                                <TextBlock Text="{x:Bind LiveThroughputFormatted, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" Foreground="#3B82F6" />
+                                                <TextBlock Text="{x:Bind LiveThroughputFormatted, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" Foreground="{x:Bind LiveThroughputColor, Mode=OneWay}" />
                                                 <TextBlock Text="•" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
                                                 <TextBlock Text="{x:Bind StatusDisplay, Mode=OneWay}" FontSize="11" FontWeight="Medium" Foreground="{x:Bind StatusColor, Mode=OneWay}" />
                                             </StackPanel>
@@ -464,7 +466,7 @@
                                             SmallChange="1"
                                             LargeChange="4"
                                             Width="140" />
-                                        <TextBlock Text="Numero di stream TCP paralleli utilizzati per scaricare ciascun file segmentato." FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" />
+                                        <TextBlock Text="Numero di stream TCP paralleli utilizzati per scaricare ciascun file segmentato." FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
                                     </StackPanel>
                                 </StackPanel>
 
@@ -485,7 +487,7 @@
                                             SmallChange="10"
                                             LargeChange="100"
                                             Width="160" />
-                                        <TextBlock Text="I download superiori a questa soglia richiederanno conferma manuale." FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" />
+                                        <TextBlock Text="I download superiori a questa soglia richiederanno conferma manuale." FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
                                     </StackPanel>
                                 </StackPanel>
 
@@ -514,7 +516,7 @@
                                             SmallChange="50"
                                             LargeChange="500"
                                             Width="160" />
-                                        <TextBlock Text="KB/s (imposta 0 per sfruttare la massima banda di rete disponibile)." FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" />
+                                        <TextBlock Text="KB/s (imposta 0 per sfruttare la massima banda di rete disponibile)." FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
                                     </StackPanel>
                                 </StackPanel>
 
@@ -538,7 +540,7 @@
                                         <ComboBoxItem Content="Tema Scuro (Dark)" Tag="Dark" />
                                         <ComboBoxItem Content="Tema Chiaro (Light)" Tag="Light" />
                                     </ComboBox>
-                                    <TextBlock Text="Scegli se sincronizzare il tema con le impostazioni di Windows oppure forzare il tema Scuro o Chiaro." FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" />
+                                    <TextBlock Text="Scegli se sincronizzare il tema con le impostazioni di Windows oppure forzare il tema Scuro o Chiaro." FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
                                 </StackPanel>
                             </StackPanel>
                         </Border>

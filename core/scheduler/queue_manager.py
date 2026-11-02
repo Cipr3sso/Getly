@@ -3,7 +3,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Callable, Any
+from typing import Dict, List, Optional, Callable, Any, Tuple
 import urllib.parse
 
 from core.network.session_pool import MultiInterfaceSessionPool
@@ -54,6 +54,11 @@ class QueueManager:
         self.confirmation_threshold_mb: int = 100
         self.auto_categorize: bool = True
 
+        # Bandwidth attribution per network adapter for Getly's downloads
+        self._last_adapter_bytes: Dict[str, int] = {}
+        self._last_adapter_time: float = time.monotonic()
+        self._adapter_speeds: Dict[str, Tuple[float, float]] = {}
+
     @property
     def is_running(self) -> bool:
         return self._is_running
@@ -92,6 +97,62 @@ class QueueManager:
     def get_task(self, task_id: str) -> Optional[DownloadTask]:
         """Retrieves a task by ID."""
         return self._tasks.get(task_id) or self.state_store.get_task(task_id)
+
+    def get_adapter_transfer_rates(self) -> Dict[str, Tuple[float, float]]:
+        """
+        Returns real-time (download_speed_bps, upload_speed_bps) per network adapter
+        generated strictly by Getly's active download engines.
+        """
+        now = time.monotonic()
+        dt = now - self._last_adapter_time
+        if dt < 0.1:
+            return dict(self._adapter_speeds)
+
+        active_engines = list(self._active_engines.values())
+        if not active_engines:
+            self._last_adapter_bytes.clear()
+            self._adapter_speeds.clear()
+            self._last_adapter_time = now
+            return {}
+
+        current_bytes: Dict[str, int] = {}
+        for engine in active_engines:
+            if hasattr(engine, "_adapter_downloaded"):
+                for ad_name, b in getattr(engine, "_adapter_downloaded", {}).items():
+                    current_bytes[ad_name] = current_bytes.get(ad_name, 0) + b
+
+        new_speeds: Dict[str, Tuple[float, float]] = {}
+        all_adapters = getattr(self.session_pool, "all_adapters", [])
+        for ad in all_adapters:
+            b = current_bytes.get(ad.name, 0)
+            last_b = self._last_adapter_bytes.get(ad.name, 0)
+            delta = b - last_b
+            if delta > 0 and dt > 0:
+                instant_speed = delta / dt
+                old_spd = self._adapter_speeds.get(ad.name, (0.0, 0.0))[0]
+                smoothed = 0.6 * instant_speed + 0.4 * old_spd if old_spd > 0 else instant_speed
+                new_speeds[ad.name] = (smoothed, 0.0)
+            else:
+                # Check for Torrent engines that might attribute to primary
+                torrent_dl = sum(
+                    getattr(e.task, "speed_bps", 0.0)
+                    for e in active_engines
+                    if hasattr(e, "task") and not hasattr(e, "_adapter_downloaded")
+                )
+                torrent_ul = sum(
+                    getattr(e.task, "upload_speed_bps", 0.0)
+                    for e in active_engines
+                    if hasattr(e, "task") and not hasattr(e, "_adapter_downloaded")
+                )
+                if getattr(ad, "is_primary", False) and (torrent_dl > 0 or torrent_ul > 0):
+                    new_speeds[ad.name] = (torrent_dl, torrent_ul)
+                else:
+                    new_speeds[ad.name] = (0.0, 0.0)
+
+        self._last_adapter_bytes = current_bytes
+        self._last_adapter_time = now
+        self._adapter_speeds = new_speeds
+        return dict(self._adapter_speeds)
 
     async def add_url(
         self,

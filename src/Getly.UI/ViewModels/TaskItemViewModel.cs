@@ -150,22 +150,22 @@ public partial class TaskItemViewModel : ObservableObject
         {
             case "DOWNLOADING":
                 StatusDisplay = IsTorrent ? $"Scaricamento (P2P)" : "In download";
-                StatusColor = "#0078D4"; // Fluent Blue
+                StatusColor = "#3B82F6"; // Fluent Accent Blue
                 StatusIconGlyph = "\uE896"; // Download
                 break;
             case "PAUSED":
                 StatusDisplay = "In pausa";
-                StatusColor = "#D83B01"; // Amber / Orange
+                StatusColor = "#F59E0B"; // Vibrant Amber
                 StatusIconGlyph = "\uE769"; // Pause
                 break;
             case "COMPLETED":
                 StatusDisplay = "Completato";
-                StatusColor = "#107C41"; // Emerald Green
+                StatusColor = "#10B981"; // Vibrant Emerald Green
                 StatusIconGlyph = "\uE73E"; // Checkmark
                 break;
             case "FAILED":
                 StatusDisplay = "Errore";
-                StatusColor = "#E81123"; // Red
+                StatusColor = "#EF4444"; // Vibrant Red
                 StatusIconGlyph = "\uEB90"; // Error badge
                 break;
             case "WAITING":

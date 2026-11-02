@@ -603,7 +603,8 @@ public sealed partial class MainWindow : Window
 
     private void OnRowDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
-        var task = GetTask(sender);
+        e.Handled = true;
+        var task = GetTask(sender) ?? ViewModel.SelectedTask;
         if (task == null) return;
 
         ShowFloatingWindow(task);
