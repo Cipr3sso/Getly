@@ -567,6 +567,12 @@
                                 <ToggleSwitch
                                     Header="Mostra finestra mini galleggiante durante i download in background"
                                     IsOn="{x:Bind ViewModel.EnableFloatingWindow, Mode=TwoWay}" />
+
+                                <Border Height="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" />
+
+                                <ToggleSwitch
+                                    Header="Minimizza nella System Tray alla chiusura ('X')"
+                                    IsOn="{x:Bind ViewModel.MinimizeToTrayOnClose, Mode=TwoWay}" />
                             </StackPanel>
                         </Border>
 

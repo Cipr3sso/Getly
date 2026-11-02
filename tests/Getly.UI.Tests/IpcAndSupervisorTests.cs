@@ -472,4 +472,31 @@ public class IpcAndSupervisorTests : IDisposable
         newVm.AutoCategorize = true;
         await newVm.SaveSettingsAsync();
     }
+
+    [Fact]
+    public async Task Settings_MinimizeToTrayOnClose_PersistsCorrectly()
+    {
+        var vm = new MainViewModel();
+
+        // Default should be true
+        Assert.True(vm.MinimizeToTrayOnClose);
+
+        // Modify
+        vm.MinimizeToTrayOnClose = false;
+        await vm.SaveSettingsAsync();
+
+        string settingsPath = MainViewModel.GetSettingsFilePath();
+        Assert.True(File.Exists(settingsPath));
+
+        string json = await File.ReadAllTextAsync(settingsPath);
+        Assert.Contains("\"MinimizeToTrayOnClose\": false", json);
+
+        // Reload
+        var newVm = new MainViewModel();
+        Assert.False(newVm.MinimizeToTrayOnClose);
+
+        // Reset
+        newVm.MinimizeToTrayOnClose = true;
+        await newVm.SaveSettingsAsync();
+    }
 }

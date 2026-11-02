@@ -6,6 +6,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using Getly.UI.Services;
 using Getly.UI.ViewModels;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -24,6 +25,7 @@ public sealed partial class MainWindow : Window
     private bool _initialized;
     private bool _isDialogOpen;
     private FloatingDownloadWindow? _floatingWindow;
+    private readonly SystemTrayManager _trayManager = new();
 
     #region Win32 WndProc & Minimum Window Size (WM_GETMINMAXINFO)
 
@@ -32,6 +34,7 @@ public sealed partial class MainWindow : Window
     private readonly IntPtr _oldWndProc;
 
     private const int GWLP_WNDPROC = -4;
+    private const uint WM_CLOSE = 0x0010;
     private const uint WM_GETMINMAXINFO = 0x0024;
 
     [StructLayout(LayoutKind.Sequential)]
@@ -79,6 +82,17 @@ public sealed partial class MainWindow : Window
 
     private IntPtr HookWndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
     {
+        if (_trayManager.HandleWndProc(hWnd, msg, wParam, lParam, out bool handled) != IntPtr.Zero || handled)
+        {
+            return IntPtr.Zero;
+        }
+
+        if (msg == WM_CLOSE && !_trayManager.IsExplicitExit && ViewModel.MinimizeToTrayOnClose)
+        {
+            _trayManager.MinimizeToTray();
+            return IntPtr.Zero;
+        }
+
         if (msg == WM_GETMINMAXINFO)
         {
             // Populate default metrics and borders first
@@ -136,11 +150,56 @@ public sealed partial class MainWindow : Window
         ViewModel.TaskNotificationTriggered += OnTaskNotificationTriggered;
         AppWindow.Changed += AppWindow_Changed;
 
+        // System Tray Integration & Window Icon
+        _trayManager.Initialize(this, AppWindow, ViewModel);
+        AppWindow.Closing += AppWindow_Closing;
+        Closed += (s, e) =>
+        {
+            _trayManager.Dispose();
+            ViewModel.Dispose();
+        };
+        SetAppIcon();
+
         // Default initial selection
         if (NavView.MenuItems.Count > 0)
         {
             NavView.SelectedItem = NavView.MenuItems[0];
         }
+    }
+
+    private void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
+    {
+        if (!_trayManager.IsExplicitExit && ViewModel.MinimizeToTrayOnClose)
+        {
+            args.Cancel = true;
+            _trayManager.MinimizeToTray();
+        }
+        else
+        {
+            _trayManager.RemoveTrayIcon();
+        }
+    }
+
+    private void SetAppIcon()
+    {
+        try
+        {
+            string[] iconCandidates = new[]
+            {
+                System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "app_icon.ico"),
+                System.IO.Path.Combine(AppContext.BaseDirectory, "assets", "app_icon.ico"),
+                System.IO.Path.Combine(AppContext.BaseDirectory, "app_icon.ico")
+            };
+            foreach (var p in iconCandidates)
+            {
+                if (System.IO.File.Exists(p))
+                {
+                    AppWindow.SetIcon(p);
+                    break;
+                }
+            }
+        }
+        catch { }
     }
 
     private async void MainWindow_Activated(object sender, WindowActivatedEventArgs args)

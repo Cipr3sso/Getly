@@ -136,6 +136,9 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string _statusMessage = "Pronto";
 
+    [ObservableProperty]
+    private bool _minimizeToTrayOnClose = true;
+
     public MainViewModel(IpcClient? ipcClient = null, EngineSupervisor? supervisor = null)
     {
         _supervisor = supervisor ?? new EngineSupervisor();
@@ -491,6 +494,26 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
+    public async Task PauseAllTasksAsync()
+    {
+        var targets = Tasks.Where(t => t.IsActive && !t.IsPaused).ToList();
+        foreach (var task in targets)
+        {
+            await PauseTaskAsync(task);
+        }
+    }
+
+    [RelayCommand]
+    public async Task ResumeAllTasksAsync()
+    {
+        var targets = Tasks.Where(t => t.IsPaused).ToList();
+        foreach (var task in targets)
+        {
+            await ResumeTaskAsync(task);
+        }
+    }
+
+    [RelayCommand]
     private async Task DeleteTaskAsync(TaskItemViewModel? task)
     {
         var target = task ?? SelectedTask;
@@ -714,6 +737,7 @@ public partial class MainViewModel : ObservableObject
                     VpnShieldActive = settings.VpnShieldActive;
                     AutostartEnabled = settings.AutostartEnabled;
                     EnableFloatingWindow = settings.EnableFloatingWindow;
+                    MinimizeToTrayOnClose = settings.MinimizeToTrayOnClose;
                     if (!string.IsNullOrWhiteSpace(settings.AppTheme))
                         AppTheme = settings.AppTheme;
                 }
@@ -741,6 +765,7 @@ public partial class MainViewModel : ObservableObject
                 VpnShieldActive = VpnShieldActive,
                 AutostartEnabled = AutostartEnabled,
                 EnableFloatingWindow = EnableFloatingWindow,
+                MinimizeToTrayOnClose = MinimizeToTrayOnClose,
                 AppTheme = AppTheme
             };
 
@@ -791,6 +816,12 @@ public partial class MainViewModel : ObservableObject
             action();
         }
     }
+
+    public void Dispose()
+    {
+        try { _ipcClient?.Dispose(); } catch { }
+        try { _supervisor?.Dispose(); } catch { }
+    }
 }
 
 public class GetlySettingsModel
@@ -804,5 +835,6 @@ public class GetlySettingsModel
     public bool VpnShieldActive { get; set; } = true;
     public bool AutostartEnabled { get; set; } = false;
     public bool EnableFloatingWindow { get; set; } = true;
+    public bool MinimizeToTrayOnClose { get; set; } = true;
     public string AppTheme { get; set; } = "System";
 }
