@@ -115,6 +115,15 @@ public sealed partial class MainWindow : Window
         ApplyTheme(ViewModel.AppTheme);
         SetTitleBar(TitleDragArea);
 
+        if (this.Content is FrameworkElement rootElem)
+        {
+            rootElem.ActualThemeChanged += (s, e) =>
+            {
+                UpdateTitleBarColors(rootElem.ActualTheme);
+                _floatingWindow?.SetTheme(rootElem.ActualTheme);
+            };
+        }
+
         // 2. Intercept Win32 WndProc to enforce physical unpassable min dimensions
         _wndProcDelegate = HookWndProc;
         var hwnd = WindowNative.GetWindowHandle(this);
@@ -147,20 +156,35 @@ public sealed partial class MainWindow : Window
 
     public void ApplyTheme(string themeName)
     {
-        var theme = string.Equals(themeName, "Light", StringComparison.OrdinalIgnoreCase)
-            ? ElementTheme.Light
-            : ElementTheme.Dark;
+        ElementTheme requestedTheme;
+        if (string.Equals(themeName, "Light", StringComparison.OrdinalIgnoreCase))
+        {
+            requestedTheme = ElementTheme.Light;
+        }
+        else if (string.Equals(themeName, "Dark", StringComparison.OrdinalIgnoreCase))
+        {
+            requestedTheme = ElementTheme.Dark;
+        }
+        else
+        {
+            requestedTheme = ElementTheme.Default; // Segui sistema
+        }
 
         if (this.Content is FrameworkElement root)
         {
-            root.RequestedTheme = theme;
+            root.RequestedTheme = requestedTheme;
+            UpdateTitleBarColors(root.ActualTheme);
+            _floatingWindow?.SetTheme(root.ActualTheme);
         }
-        UpdateTitleBarColors(theme);
-        _floatingWindow?.SetTheme(theme);
 
         if (ThemeModeComboBox is not null)
         {
-            ThemeModeComboBox.SelectedIndex = theme == ElementTheme.Light ? 1 : 0;
+            ThemeModeComboBox.SelectedIndex = requestedTheme switch
+            {
+                ElementTheme.Dark => 1,
+                ElementTheme.Light => 2,
+                _ => 0
+            };
         }
     }
 

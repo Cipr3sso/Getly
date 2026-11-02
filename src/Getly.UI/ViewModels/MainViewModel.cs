@@ -56,7 +56,7 @@ public partial class MainViewModel : ObservableObject
     private bool _enableFloatingWindow = true;
 
     [ObservableProperty]
-    private string _appTheme = "Dark";
+    private string _appTheme = "System";
 
     [ObservableProperty]
     private bool _autostartEnabled = IsAutostartConfigured();
@@ -659,5 +659,5 @@ public class GetlySettingsModel
     public bool VpnShieldActive { get; set; } = true;
     public bool AutostartEnabled { get; set; } = false;
     public bool EnableFloatingWindow { get; set; } = true;
-    public string AppTheme { get; set; } = "Dark";
+    public string AppTheme { get; set; } = "System";
 }

@@ -532,10 +532,11 @@
                                 <StackPanel Spacing="6">
                                     <TextBlock Text="Tema dell'applicazione" FontSize="12" FontWeight="Medium" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     <ComboBox x:Name="ThemeModeComboBox" Width="240" SelectionChanged="ThemeModeComboBox_SelectionChanged">
+                                        <ComboBoxItem Content="Segui sistema" Tag="System" />
                                         <ComboBoxItem Content="Tema Scuro (Dark)" Tag="Dark" />
                                         <ComboBoxItem Content="Tema Chiaro (Light)" Tag="Light" />
                                     </ComboBox>
-                                    <TextBlock Text="Scegli tra tema Scuro per ridurre l'affaticamento visivo o tema Chiaro ad alto contrasto." FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" />
+                                    <TextBlock Text="Scegli se sincronizzare il tema con le impostazioni di Windows oppure forzare il tema Scuro o Chiaro." FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" />
                                 </StackPanel>
                             </StackPanel>
                         </Border>
