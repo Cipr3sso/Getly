@@ -144,6 +144,7 @@ async def run_engine_service(download_dir: Path, port: int, pipe_name: str) -> N
         await queue_manager.on_cnl_package(package)
 
     async def on_download_req(data: dict):
+        total_size = data.get("file_size") or data.get("total_size") or 0
         return await queue_manager.add_url(
             url=data.get("url"),
             destination_dir=Path(data.get("destination_dir")) if data.get("destination_dir") else download_dir,
@@ -151,8 +152,10 @@ async def run_engine_service(download_dir: Path, port: int, pipe_name: str) -> N
             cookies=data.get("cookies"),
             referer=data.get("referer"),
             user_agent=data.get("user_agent"),
+            headers=data.get("headers"),
             category=data.get("category"),
-            auto_start=data.get("auto_start", False),
+            auto_start=data.get("auto_start", True),
+            total_size=total_size,
         )
 
     local_http_server = LocalHttpServer(

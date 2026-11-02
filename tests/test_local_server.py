@@ -78,12 +78,20 @@ async def test_local_server_add_download():
             assert rec["referer"] == "https://example.com/watch"
             assert rec["cookies"] == "session=abc123"
             assert rec["user_agent"] == "Mozilla/5.0 TestBrowser"
-            assert rec["auto_start"] is False
+            assert rec["auto_start"] is True
 
-            # Test POST /add with explicit auto_start: True
-            await client.post(f"http://127.0.0.1:{test_port}/add", json={"url": "https://example.com/auto.iso", "auto_start": True})
+            # Test POST /add with explicit auto_start: False and file_size
+            await client.post(
+                f"http://127.0.0.1:{test_port}/add",
+                json={
+                    "url": "https://example.com/manual.iso",
+                    "file_size": 31457280,
+                    "auto_start": False,
+                },
+            )
             assert len(received_downloads) == 2
-            assert received_downloads[1]["auto_start"] is True
+            assert received_downloads[1]["auto_start"] is False
+            assert received_downloads[1]["file_size"] == 31457280
 
             # 3. Test invalid POST /add (missing url)
             bad_payload = {"filename": "no_url.mp4"}

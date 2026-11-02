@@ -2,8 +2,14 @@ import asyncio
 import itertools
 import logging
 import socket
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 import aiohttp
+
+try:
+    from curl_cffi.requests import AsyncSession as CurlAsyncSession
+    HAVE_CURL_CFFI = True
+except ImportError:
+    HAVE_CURL_CFFI = False
 
 from .models import NetworkAdapter
 from .interface_detector import InterfaceDetector
@@ -139,6 +145,12 @@ class MultiInterfaceSessionPool:
             timeout=self._timeout,
             headers=DEFAULT_SESSION_HEADERS,
         )
+
+    def create_impersonated_session(self, impersonate: str = "chrome124") -> Optional[Any]:
+        """Creates a session configured with TLS browser fingerprint impersonation (e.g. Chrome 124)."""
+        if HAVE_CURL_CFFI:
+            return CurlAsyncSession(impersonate=impersonate)
+        return None
 
     async def initialize(self) -> None:
         """Discovers adapters and initializes ClientSession instances."""

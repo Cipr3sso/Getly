@@ -96,9 +96,11 @@ class QueueManager:
         cookies: Optional[str] = None,
         referer: Optional[str] = None,
         user_agent: Optional[str] = None,
+        headers: Optional[dict] = None,
         category: Optional[str] = None,
         start_paused: bool = False,
         auto_start: Optional[bool] = None,
+        total_size: int = 0,
         task_type: Optional[str] = None,
         selected_files: Optional[List[int]] = None,
         info_hash: Optional[str] = None,
@@ -136,8 +138,8 @@ class QueueManager:
             except Exception as exc:
                 logger.debug("Streaming bridge resolution error: %s", exc)
 
-        task_headers = None
-        parsed_total_size = 0
+        task_headers = dict(headers) if headers else None
+        parsed_total_size = total_size or 0
         if resolved and (resolved.url or resolved.files):
             direct_url = resolved.url or (resolved.files[0].url if resolved.files else "")
             direct_filename = resolved.filename or (resolved.files[0].name if resolved.files else "")
@@ -154,11 +156,11 @@ class QueueManager:
                     clean_filename = direct_filename
 
                 if resolved.headers:
-                    task_headers = dict(resolved.headers)
+                    task_headers = {**(task_headers or {}), **dict(resolved.headers)}
                 elif resolved.files and resolved.files[0].headers:
-                    task_headers = dict(resolved.files[0].headers)
+                    task_headers = {**(task_headers or {}), **dict(resolved.files[0].headers)}
 
-                if resolved.files and resolved.files[0].size:
+                if not parsed_total_size and resolved.files and resolved.files[0].size:
                     parsed_total_size = resolved.files[0].size
 
                 if task_headers:
@@ -171,7 +173,7 @@ class QueueManager:
                         elif lk == "referer" and not referer:
                             referer = h_v
 
-        if "clen=" in clean_url:
+        if not parsed_total_size and "clen=" in clean_url:
             try:
                 from urllib.parse import parse_qs, urlparse
                 qs = parse_qs(urlparse(clean_url).query)
@@ -520,6 +522,7 @@ class QueueManager:
                     custom_headers=task.headers,
                     task_id=task.task_id,
                     state_store=self.state_store,
+                    total_size=task.total_size,
                 )
             self._active_engines[task.task_id] = engine
 

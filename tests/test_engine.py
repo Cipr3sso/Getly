@@ -532,3 +532,58 @@ async def test_worker_logs_chunk_pickup_and_completion(caplog, tmp_path: Path):
     finally:
         await runner.cleanup()
 
+
+@pytest.mark.asyncio
+async def test_probe_cloudflare_403_with_known_size():
+    app = web.Application()
+
+    async def handle_403(request):
+        return web.Response(status=403, text="Cloudflare challenge")
+
+    app.router.add_route("*", "/challenge.zip", handle_403)
+
+    server_port = 19813
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", server_port)
+    await site.start()
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            info = await ResourceProbe.probe(
+                session,
+                f"http://127.0.0.1:{server_port}/challenge.zip",
+                known_total_size=31457280,
+            )
+            assert info is not None
+            assert info.total_size == 31457280
+            assert info.supports_ranges is True
+            assert info.filename == "challenge.zip"
+    finally:
+        await runner.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_queue_manager_preliminary_size_and_category(tmp_path: Path):
+    from core.scheduler.state_store import StateStore
+    from core.scheduler.queue_manager import QueueManager
+    from core.scheduler.task import DownloadStatus
+
+    store = StateStore(tmp_path / "preliminary.db")
+    pool = MultiInterfaceSessionPool(adapters=[NetworkAdapter(name="loop", ip="127.0.0.1")])
+    qm = QueueManager(session_pool=pool, state_store=store, default_download_dir=tmp_path)
+
+    task = await qm.add_url(
+        url="https://files.testfile.org/ZIPC/30MB-Corrupt-Testfile.Org.zip",
+        filename="30MB-Corrupt-Testfile.Org.zip",
+        total_size=31457280,
+        auto_start=True,
+    )
+
+    assert task.category == "Compressi"
+    assert task.destination_dir == tmp_path / "Compressi"
+    assert task.total_size == 31457280
+    assert task.status == DownloadStatus.PENDING
+    assert qm._task_queue.qsize() == 1
+
+

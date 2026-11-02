@@ -6,6 +6,12 @@ from datetime import datetime, timezone
 from typing import Optional, Callable
 import aiohttp
 
+try:
+    from curl_cffi.requests import AsyncSession as CurlAsyncSession
+    HAVE_CURL_CFFI = True
+except ImportError:
+    HAVE_CURL_CFFI = False
+
 from core.network.models import NetworkAdapter
 from .probe import DEFAULT_HTTP_HEADERS, get_browser_headers
 from .chunk_planner import Chunk, ChunkPlanner
@@ -186,14 +192,42 @@ class ChunkWorker:
                             await asyncio.sleep(delay)
                             continue
 
-                        # 2. Handle HTTP 401 / 403 Forbidden (e.g. IP lock)
+                        # 2. Handle HTTP 401 / 403 Forbidden (e.g. Cloudflare TLS challenge or IP lock)
                         if resp.status in (401, 403):
                             logger.warning(
-                                "Worker %d [%s] received HTTP %d. IP may not be allowed or session is IP-bound.",
+                                "Worker %d [%s] received HTTP %d. Attempting TLS impersonation (chrome124) fallback...",
                                 self.worker_id,
                                 self.adapter.name,
                                 resp.status,
                             )
+                            if HAVE_CURL_CFFI:
+                                try:
+                                    async with CurlAsyncSession(impersonate="chrome124") as curl_session:
+                                        curl_resp = await curl_session.get(self.url, headers=headers, stream=True)
+                                        if curl_resp.status_code in (200, 206):
+                                            write_offset = start_offset
+                                            async for chunk_bytes in curl_resp.aiter_content(self.read_buffer_size):
+                                                if self._is_stopped:
+                                                    return False
+                                                if chunk_bytes:
+                                                    await self.storage.write(write_offset, chunk_bytes)
+                                                    write_offset += len(chunk_bytes)
+                                                    chunk.bytes_downloaded += len(chunk_bytes)
+                                                    if self.on_bytes_received:
+                                                        self.on_bytes_received(len(chunk_bytes), self.adapter)
+                                            if hasattr(self.storage, "flush"):
+                                                await self.storage.flush()
+                                            self.planner.mark_completed(chunk.chunk_id)
+                                            logger.info(
+                                                "Worker %d [%s] successfully completed chunk %d via curl_cffi fallback",
+                                                self.worker_id,
+                                                self.adapter.name,
+                                                chunk.chunk_id,
+                                            )
+                                            return True
+                                except Exception as curl_err:
+                                    logger.warning("Worker %d curl_cffi fallback failed: %s", self.worker_id, curl_err)
+
                             if self.on_ip_forbidden:
                                 self.on_ip_forbidden(self.adapter)
                             self.stop()

@@ -100,11 +100,21 @@ class LocalHttpServer(CNLServer):
             if "?" in clean_filename:
                 clean_filename = clean_filename.split("?")[0]
 
-        auto_start = data.get("auto_start", False)
+        raw_file_size = data.get("file_size") or data.get("total_size")
+        parsed_size = 0
+        if raw_file_size is not None:
+            try:
+                parsed_size = int(raw_file_size)
+                if parsed_size < 0:
+                    parsed_size = 0
+            except (ValueError, TypeError):
+                parsed_size = 0
+
+        auto_start = data.get("auto_start", True)
         if isinstance(auto_start, str):
-            auto_start = auto_start.lower() in ("true", "1", "yes")
+            auto_start = auto_start.lower() not in ("false", "0", "no")
         elif not isinstance(auto_start, bool):
-            auto_start = False
+            auto_start = True
 
         download_payload = {
             "url": url,
@@ -116,6 +126,8 @@ class LocalHttpServer(CNLServer):
             "cookies": cookies,
             "user_agent": user_agent,
             "auto_start": auto_start,
+            "file_size": parsed_size,
+            "total_size": parsed_size,
         }
 
         logger.info("Local HTTP server received /add: %s (filename: %s)", url, clean_filename)

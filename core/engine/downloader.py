@@ -54,11 +54,13 @@ class DownloadEngine:
         speed_limiter: Optional[SpeedLimiter] = None,
         task_id: Optional[str] = None,
         state_store: Optional[Any] = None,
+        total_size: int = 0,
     ):
         self.url = url
         self.destination_dir = Path(destination_dir)
         self.session_pool = session_pool
         self.custom_filename = custom_filename
+        self.total_size = total_size
         self.workers_per_interface = workers_per_interface
         self.on_progress = on_progress
         self.host_coordinator = host_coordinator or HostCoordinator.get_instance()
@@ -137,7 +139,13 @@ class DownloadEngine:
                     cookies=self.cookies,
                     user_agent=self.user_agent,
                     custom_headers=self.custom_headers,
+                    known_total_size=self.total_size,
                 )
+                if self.info:
+                    if self.info.total_size <= 0 and self.total_size > 0:
+                        self.info.total_size = self.total_size
+                    if self.custom_filename and self.info.filename == "downloaded_file":
+                        self.info.filename = self.custom_filename
                 if self.info and self.info.url and self.info.url != self.url:
                     logger.info("Resource redirected: %s -> %s", self.url, self.info.url)
                     self.url = self.info.url

@@ -109,16 +109,8 @@ chrome.downloads.onCreated.addListener(async (downloadItem) => {
     filename = filename.split(/[\\/]/).pop().split("?")[0];
   }
 
-  // Collect session cookies
-  let cookieString = "";
-  try {
-    const cookies = await chrome.cookies.getAll({ url: url });
-    if (cookies && cookies.length > 0) {
-      cookieString = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
-    }
-  } catch (err) {
-    console.warn("[Getly] Could not read cookies:", err);
-  }
+  // Extract preliminary file size reported by the browser (if known and > 0)
+  const fileSize = downloadItem.fileSize && downloadItem.fileSize > 0 ? downloadItem.fileSize : null;
 
   // Referer resolution
   let referrer = downloadItem.referrer || "";
@@ -131,15 +123,54 @@ chrome.downloads.onCreated.addListener(async (downloadItem) => {
     } catch (_) {}
   }
 
+  // Collect session cookies for target url and referrer domain (e.g. Cloudflare cf_clearance)
+  let cookieString = "";
+  try {
+    const cookieMap = new Map();
+    const urlCookies = await chrome.cookies.getAll({ url: url });
+    if (urlCookies && urlCookies.length > 0) {
+      urlCookies.forEach((c) => cookieMap.set(c.name, c.value));
+    }
+    if (referrer && referrer.startsWith("http")) {
+      const refCookies = await chrome.cookies.getAll({ url: referrer });
+      if (refCookies && refCookies.length > 0) {
+        refCookies.forEach((c) => {
+          if (!cookieMap.has(c.name)) {
+            cookieMap.set(c.name, c.value);
+          }
+        });
+      }
+    }
+    if (cookieMap.size > 0) {
+      cookieString = Array.from(cookieMap.entries())
+        .map(([k, v]) => `${k}=${v}`)
+        .join("; ");
+    }
+  } catch (err) {
+    console.warn("[Getly] Could not read cookies:", err);
+  }
+
   const payload = {
     url: url,
     filename: filename || "",
+    file_size: fileSize,
     headers: {
       Referer: referrer,
       "User-Agent": navigator.userAgent,
       Cookie: cookieString,
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+      "Accept-Language": navigator.language || "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+      "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+      "Sec-Ch-Ua-Mobile": "?0",
+      "Sec-Ch-Ua-Platform": '"Windows"',
+      "Sec-Fetch-Dest": "document",
+      "Sec-Fetch-Mode": "navigate",
+      "Sec-Fetch-Site": "same-site",
+      "Sec-Fetch-User": "?1",
+      "Upgrade-Insecure-Requests": "1",
     },
     category: detectCategory(filename, mime),
+    auto_start: true,
   };
 
   console.log("[Getly] Forwarding intercepted download to daemon:", payload);

@@ -123,8 +123,7 @@ public partial class TaskItemViewModel : ObservableObject
         IsError = string.Equals(dto.Status, "FAILED", StringComparison.OrdinalIgnoreCase)
                   || string.Equals(dto.Status, "ERROR", StringComparison.OrdinalIgnoreCase);
         IsPendingConfirmation = string.Equals(dto.Status, "WAITING", StringComparison.OrdinalIgnoreCase)
-                                || string.Equals(dto.Status, "PENDING_CONFIRMATION", StringComparison.OrdinalIgnoreCase)
-                                || (string.Equals(dto.Status, "PAUSED", StringComparison.OrdinalIgnoreCase) && dto.DownloadedBytes == 0 && Progress == 0);
+                                || string.Equals(dto.Status, "PENDING_CONFIRMATION", StringComparison.OrdinalIgnoreCase);
 
         ErrorToolTip = !string.IsNullOrWhiteSpace(ErrorMessage)
             ? $"Errore: {ErrorMessage}"

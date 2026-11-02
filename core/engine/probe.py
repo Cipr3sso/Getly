@@ -8,6 +8,12 @@ from typing import Optional, Any
 import aiohttp
 import logging
 
+try:
+    from curl_cffi.requests import AsyncSession as CurlAsyncSession
+    HAVE_CURL_CFFI = True
+except ImportError:
+    HAVE_CURL_CFFI = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -122,6 +128,7 @@ class ResourceProbe:
         cookies: Optional[str] = None,
         user_agent: Optional[str] = None,
         custom_headers: Optional[dict] = None,
+        known_total_size: int = 0,
     ) -> RemoteResourceInfo:
         """
         Executes HEAD or fallback GET Range: bytes=0-0 to discover file metadata.
@@ -129,6 +136,7 @@ class ResourceProbe:
         Gracefully falls back to GET Range if HEAD is rejected (e.g. 403 Forbidden or 405).
         Strictly propagates connection and timeout errors to prevent 0-byte fallbacks.
         Configures family=socket.AF_INET to prevent unroutable IPv6 queries on dual-stack CDN hosts.
+        Falls back to curl_cffi with chrome124 TLS impersonation when Cloudflare WAF issues 403/405 challenges.
         """
         if isinstance(session_or_url, str):
             actual_url = session_or_url
@@ -154,6 +162,7 @@ class ResourceProbe:
                     cookies=cookies,
                     user_agent=user_agent,
                     custom_headers=custom_headers,
+                    known_total_size=known_total_size,
                 )
 
         session = actual_session
@@ -164,9 +173,55 @@ class ResourceProbe:
         content_type = None
         filename = cls._extract_filename_from_url(url)
         supports_ranges = False
-        total_size = 0
+        total_size = known_total_size if known_total_size > 0 else 0
         head_failed = False
         head_error: Optional[Exception] = None
+
+        async def _probe_curl_cffi(target_url: str) -> Optional[RemoteResourceInfo]:
+            if not HAVE_CURL_CFFI:
+                return None
+            try:
+                cf_headers = get_browser_headers(
+                    target_url,
+                    referer=referer,
+                    cookies=cookies,
+                    user_agent=user_agent,
+                    custom_headers=custom_headers,
+                )
+                logger.info("Attempting Cloudflare TLS impersonation probe (curl_cffi chrome124) for %s", target_url)
+                async with CurlAsyncSession(impersonate="chrome124") as curl_session:
+                    curl_resp = await curl_session.get(target_url, headers=cf_headers, stream=True)
+                    res_url = str(curl_resp.url)
+                    headers_map = {k.lower(): v for k, v in curl_resp.headers.items()}
+                    status = curl_resp.status_code
+                    if status in (200, 206):
+                        cl = headers_map.get("content-length")
+                        c_size = int(cl) if cl and cl.isdigit() else known_total_size
+                        ar = headers_map.get("accept-ranges", "").lower()
+                        c_ranges = "bytes" in ar or status == 206
+                        cd = headers_map.get("content-disposition")
+                        c_filename = cls._parse_content_disposition(cd) if cd else cls._extract_filename_from_url(res_url)
+                        logger.info("curl_cffi probe successful: size=%d, ranges=%s, filename=%s", c_size, c_ranges, c_filename)
+                        return RemoteResourceInfo(
+                            url=res_url,
+                            total_size=c_size,
+                            supports_ranges=c_ranges,
+                            etag=headers_map.get("etag"),
+                            last_modified=headers_map.get("last-modified"),
+                            filename=c_filename or filename or "downloaded_file",
+                            content_type=headers_map.get("content-type"),
+                        )
+                    elif status == 403 and known_total_size > 0:
+                        logger.info("curl_cffi challenged (403), using verified browser dimension (%d bytes)", known_total_size)
+                        return RemoteResourceInfo(
+                            url=res_url,
+                            total_size=known_total_size,
+                            supports_ranges=True,
+                            filename=cls._extract_filename_from_url(res_url) or filename or "downloaded_file",
+                        )
+            except Exception as exc:
+                logger.debug("curl_cffi TLS impersonation probe error: %s", exc)
+            return None
 
         # 1. Try HEAD request first with realistic browser headers, dynamic/custom Referer and Cookies
         head_headers = get_browser_headers(
@@ -211,6 +266,10 @@ class ResourceProbe:
                         resp.status,
                         url,
                     )
+                    if resp.status in (401, 403, 405):
+                        cf_info = await _probe_curl_cffi(url)
+                        if cf_info:
+                            return cf_info
         except (
             aiohttp.ClientConnectorError,
             aiohttp.ClientConnectionError,
@@ -321,11 +380,33 @@ class ResourceProbe:
                                     if alt_name and alt_name != "downloaded_file":
                                         filename = alt_name
                             else:
+                                if plain_resp.status in (401, 403, 405):
+                                    cf_info = await _probe_curl_cffi(resolved_url)
+                                    if cf_info:
+                                        return cf_info
+                                    if known_total_size > 0:
+                                        return RemoteResourceInfo(
+                                            url=resolved_url,
+                                            total_size=known_total_size,
+                                            supports_ranges=True,
+                                            filename=filename,
+                                        )
                                 error_msg = f"Probe failed: server returned HTTP {plain_resp.status} for {url}"
                                 logger.error(error_msg)
                                 raise ProbeError(error_msg)
                     else:
                         # Server returned HTTP error on GET Range as well
+                        if resp.status in (401, 403, 405):
+                            cf_info = await _probe_curl_cffi(resolved_url)
+                            if cf_info:
+                                return cf_info
+                            if known_total_size > 0:
+                                return RemoteResourceInfo(
+                                    url=resolved_url,
+                                    total_size=known_total_size,
+                                    supports_ranges=True,
+                                    filename=filename,
+                                )
                         error_msg = f"Probe failed: server returned HTTP {resp.status} for {url}"
                         logger.error(error_msg)
                         raise ProbeError(error_msg)
@@ -349,6 +430,13 @@ class ResourceProbe:
 
         # If resource size is still 0 and ranges not confirmed, check if connection failed
         if total_size <= 0 and not supports_ranges and head_failed:
+            if known_total_size > 0:
+                return RemoteResourceInfo(
+                    url=resolved_url,
+                    total_size=known_total_size,
+                    supports_ranges=True,
+                    filename=filename,
+                )
             if head_error:
                 raise ProbeError(f"Failed to reach host for {url}: {head_error}") from head_error
             raise ProbeError(f"Unable to discover resource metadata or size for {url}")
