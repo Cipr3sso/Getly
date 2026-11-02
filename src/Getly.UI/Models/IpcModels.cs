@@ -125,6 +125,12 @@ public sealed record NetworkInterfaceDto
 
     [JsonPropertyName("is_enabled")]
     public bool IsEnabled { get; init; } = true;
+
+    [JsonPropertyName("download_speed_bps")]
+    public double DownloadSpeedBps { get; init; }
+
+    [JsonPropertyName("upload_speed_bps")]
+    public double UploadSpeedBps { get; init; }
 }
 
 public sealed record SystemStatsDto

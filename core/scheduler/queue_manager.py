@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import time
 from pathlib import Path
 from typing import Dict, List, Optional, Callable, Any
 import urllib.parse
@@ -296,6 +297,8 @@ class QueueManager:
             return False
 
         task.status = DownloadStatus.PAUSED
+        task.speed_bps = 0.0
+        task.upload_speed_bps = 0.0
         self.state_store.update_task_progress(task_id, task.downloaded_bytes, DownloadStatus.PAUSED)
 
         # Cancel running engine if currently executing
@@ -513,9 +516,26 @@ class QueueManager:
             task.status = DownloadStatus.DOWNLOADING
             self.state_store.update_task_status(task.task_id, DownloadStatus.DOWNLOADING)
 
+            last_speed_time = time.time()
+            last_downloaded = task.downloaded_bytes
+
             def on_progress(downloaded: int, total: int, percentage: float) -> None:
+                nonlocal last_speed_time, last_downloaded
+                now = time.time()
+                dt = now - last_speed_time
                 task.downloaded_bytes = downloaded
                 task.total_size = total
+
+                if dt >= 0.2:
+                    delta = downloaded - last_downloaded
+                    if delta >= 0:
+                        instant_speed = delta / dt
+                        if task.speed_bps > 0:
+                            task.speed_bps = 0.6 * instant_speed + 0.4 * task.speed_bps
+                        else:
+                            task.speed_bps = instant_speed
+                    last_speed_time = now
+                    last_downloaded = downloaded
 
             if task.task_type == "TORRENT" or task.url.strip().startswith("magnet:") or task.url.strip().lower().endswith(".torrent"):
                 from core.engine.torrent_engine import TorrentDownloadEngine, TorrentSessionManager
@@ -564,10 +584,14 @@ class QueueManager:
                     logger.info("Task %s completed: %s", task.task_id, task.filename)
                 else:
                     task.status = DownloadStatus.FAILED
+                    task.speed_bps = 0.0
+                    task.upload_speed_bps = 0.0
                     task.error_message = getattr(engine, "error_message", None) or "Download ended incompletely"
                     self.state_store.update_task_status(task.task_id, DownloadStatus.FAILED, task.error_message)
                     logger.warning("Task %s failed: %s", task.task_id, task.error_message)
             except asyncio.CancelledError:
+                task.speed_bps = 0.0
+                task.upload_speed_bps = 0.0
                 # Handle cancellation without marking as failure if user paused/cancelled
                 if task.status not in (DownloadStatus.PAUSED, DownloadStatus.CANCELLED):
                     task.status = DownloadStatus.FAILED

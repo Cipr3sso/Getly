@@ -27,6 +27,15 @@ public partial class NetworkAdapterItemViewModel : ObservableObject
     private string _speedFormatted = "N/D";
 
     [ObservableProperty]
+    private double _downloadSpeedBps;
+
+    [ObservableProperty]
+    private double _uploadSpeedBps;
+
+    [ObservableProperty]
+    private string _liveThroughputFormatted = "⬇ 0 B/s • ⬆ 0 B/s";
+
+    [ObservableProperty]
     private bool _isEnabled = true;
 
     [ObservableProperty]
@@ -57,6 +66,9 @@ public partial class NetworkAdapterItemViewModel : ObservableObject
         IsPrimary = dto.IsPrimary;
         IsVpn = dto.IsVpn;
         IsEnabled = dto.IsEnabled;
+        DownloadSpeedBps = dto.DownloadSpeedBps;
+        UploadSpeedBps = dto.UploadSpeedBps;
+        LiveThroughputFormatted = $"⬇ {TaskItemViewModel.FormatBytes((long)dto.DownloadSpeedBps)}/s  ⬆ {TaskItemViewModel.FormatBytes((long)dto.UploadSpeedBps)}/s";
 
         SpeedFormatted = dto.SpeedMbps.HasValue && dto.SpeedMbps.Value > 0
             ? $"{dto.SpeedMbps.Value:0} Mbps"

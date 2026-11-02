@@ -37,7 +37,8 @@ class TelemetryDispatcher:
 
         self._task: Optional[asyncio.Task] = None
         self._is_running = False
-        self._last_task_snapshots: Dict[str, Tuple[Any, int]] = {}
+        self._last_task_snapshots: Dict[str, Tuple[Any, ...]] = {}
+        self._last_nic_io: Dict[str, Tuple[float, int, int]] = {}
 
     @property
     def is_running(self) -> bool:
@@ -90,14 +91,40 @@ class TelemetryDispatcher:
         all_tasks = self.queue_manager.get_all_tasks()
         active_tasks = [t for t in all_tasks if t.status == DownloadStatus.DOWNLOADING]
 
-        total_dl = sum(getattr(t, "speed_bps", 0.0) for t in active_tasks)
-        total_ul = sum(getattr(t, "upload_speed_bps", 0.0) for t in active_tasks)
+        tasks_dl = sum(getattr(t, "speed_bps", 0.0) for t in active_tasks)
+        tasks_ul = sum(getattr(t, "upload_speed_bps", 0.0) for t in active_tasks)
         total_downloaded = sum(getattr(t, "downloaded_bytes", 0) for t in all_tasks)
 
-        # Collect network interface stats
+        # Collect per-NIC real-time I/O rates using psutil
+        now = time.monotonic()
+        nic_speeds: Dict[str, Tuple[float, float]] = {}
+        try:
+            import psutil
+            counters = psutil.net_io_counters(pernic=True)
+            for nic_name, c in counters.items():
+                if nic_name in self._last_nic_io:
+                    last_time, last_rx, last_tx = self._last_nic_io[nic_name]
+                    dt = now - last_time
+                    if dt > 0.05:
+                        rx_speed = max(0.0, (c.bytes_recv - last_rx) / dt)
+                        tx_speed = max(0.0, (c.bytes_sent - last_tx) / dt)
+                        nic_speeds[nic_name] = (rx_speed, tx_speed)
+                self._last_nic_io[nic_name] = (now, c.bytes_recv, c.bytes_sent)
+        except Exception:
+            pass
+
+        # Collect network interface stats with live throughput
         interfaces_data = []
+        nic_dl_total = 0.0
+        nic_ul_total = 0.0
         for ad in getattr(self.session_pool, "all_adapters", []):
             is_enabled = getattr(self.session_pool, "is_adapter_enabled", lambda n: True)(ad.name)
+            # Find matching speed from nic_speeds by ad.name or ad.friendly_name
+            rx_spd, tx_spd = nic_speeds.get(ad.name) or (nic_speeds.get(ad.friendly_name) if ad.friendly_name else None) or (0.0, 0.0)
+            if is_enabled and ad.is_up:
+                nic_dl_total += rx_spd
+                nic_ul_total += tx_spd
+
             interfaces_data.append({
                 "name": ad.name,
                 "friendly_name": ad.friendly_name,
@@ -105,18 +132,28 @@ class TelemetryDispatcher:
                 "is_up": ad.is_up,
                 "is_primary": getattr(ad, "is_primary", False),
                 "speed_mbps": ad.speed_mbps,
+                "download_speed_bps": rx_spd,
+                "upload_speed_bps": tx_spd,
                 "is_vpn": getattr(ad, "is_vpn", False),
                 "is_enabled": is_enabled,
             })
 
-        # Delta updates: only include tasks whose status or downloaded_bytes changed
+        if active_tasks:
+            total_dl = max(tasks_dl, nic_dl_total)
+            total_ul = max(tasks_ul, nic_ul_total)
+        else:
+            total_dl = nic_dl_total
+            total_ul = nic_ul_total
+
+        # Delta updates: only include tasks whose status, downloaded_bytes, or speed changed
         changed_tasks: List[Dict[str, Any]] = []
         current_task_ids = set()
 
         for task in all_tasks:
             current_task_ids.add(task.task_id)
             status_val = task.status.value if hasattr(task.status, "value") else str(task.status)
-            curr_state = (status_val, task.downloaded_bytes, task.error_message)
+            speed_val = int(getattr(task, "speed_bps", 0.0))
+            curr_state = (status_val, task.downloaded_bytes, speed_val, task.error_message)
             last_state = self._last_task_snapshots.get(task.task_id)
 
             if last_state != curr_state:
