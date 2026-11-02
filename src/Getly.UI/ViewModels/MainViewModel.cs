@@ -204,6 +204,17 @@ public partial class MainViewModel : ObservableObject
             // Initial stats query
             var stats = await _ipcClient.GetStatsAsync();
             UpdateSystemStats(stats);
+
+            // Startup health check for database and directories
+            try
+            {
+                var health = await _ipcClient.HealthCheckAsync();
+                if (health != null && (health.IndexedFiles > 0 || health.MissingFilesDetected > 0))
+                {
+                    StatusMessage = $"Avvio: {health.IndexedFiles} file indicizzati, {health.MissingFilesDetected} file aggiornati in Eliminati.";
+                }
+            }
+            catch { }
         }
         catch (Exception ex)
         {
@@ -224,10 +235,11 @@ public partial class MainViewModel : ObservableObject
             // Category / Tab filter
             bool catMatch = category switch
             {
-                "DOWNLOADING" => t.IsActive,
-                "COMPLETED" => t.IsCompleted,
-                "TORRENT" => t.IsTorrent,
-                _ => true // "ALL"
+                "DOWNLOADING" => t.IsActive && !t.IsDeleted,
+                "COMPLETED" => t.IsCompleted && !t.IsDeleted,
+                "TORRENT" => t.IsTorrent && !t.IsDeleted,
+                "DELETED" => t.IsDeleted,
+                _ => !t.IsDeleted // "ALL"
             };
 
             if (!catMatch) return false;
@@ -263,17 +275,32 @@ public partial class MainViewModel : ObservableObject
     public async Task DeleteTasksAsync(IEnumerable<TaskItemViewModel> tasksToDelete, bool deleteFiles)
     {
         int count = 0;
+        bool isAlreadyInDeleted = SelectedNavCategory == "DELETED";
+        bool permanent = isAlreadyInDeleted || deleteFiles;
+
         foreach (var task in tasksToDelete.ToList())
         {
             try
             {
-                await _ipcClient.DeleteTaskAsync(task.TaskId, deleteFiles: deleteFiles);
+                await _ipcClient.DeleteTaskAsync(task.TaskId, deleteFiles: deleteFiles, permanent: permanent);
                 RunOnUI(() =>
                 {
-                    _taskIndex.Remove(task.TaskId);
-                    Tasks.Remove(task);
-                    FilteredTasks.Remove(task);
-                    if (SelectedTask == task) SelectedTask = null;
+                    if (permanent)
+                    {
+                        _taskIndex.Remove(task.TaskId);
+                        Tasks.Remove(task);
+                        FilteredTasks.Remove(task);
+                        if (SelectedTask == task) SelectedTask = null;
+                    }
+                    else
+                    {
+                        task.Status = "DELETED";
+                        task.IsDeleted = true;
+                        task.IsActive = false;
+                        task.StatusDisplay = "Eliminato";
+                        task.StatusColor = "#9CA3AF";
+                        task.StatusIconGlyph = "\uE74D";
+                    }
                 });
                 count++;
             }
@@ -283,7 +310,9 @@ public partial class MainViewModel : ObservableObject
             }
         }
         ApplyFilters();
-        StatusMessage = $"Rimossi {count} download" + (deleteFiles ? " e file da disco" : "");
+        StatusMessage = permanent
+            ? $"Eliminati definitivamente {count} download."
+            : $"Spostati in Eliminati {count} download.";
     }
 
     private void HandleTelemetryTick(TelemetryTickDto tick)
@@ -456,18 +485,95 @@ public partial class MainViewModel : ObservableObject
         if (target is null) return;
         try
         {
-            await _ipcClient.DeleteTaskAsync(target.TaskId, deleteFiles: false);
+            bool isAlreadyInDeleted = SelectedNavCategory == "DELETED" || target.IsDeleted;
+            await _ipcClient.DeleteTaskAsync(target.TaskId, deleteFiles: false, permanent: isAlreadyInDeleted);
             RunOnUI(() =>
             {
-                _taskIndex.Remove(target.TaskId);
-                Tasks.Remove(target);
-                FilteredTasks.Remove(target);
-                if (SelectedTask == target) SelectedTask = null;
+                if (isAlreadyInDeleted)
+                {
+                    _taskIndex.Remove(target.TaskId);
+                    Tasks.Remove(target);
+                    FilteredTasks.Remove(target);
+                    if (SelectedTask == target) SelectedTask = null;
+                    StatusMessage = $"Download rimosso definitivamente: {target.Filename}";
+                }
+                else
+                {
+                    target.Status = "DELETED";
+                    target.IsDeleted = true;
+                    target.IsActive = false;
+                    target.StatusDisplay = "Eliminato";
+                    target.StatusColor = "#9CA3AF";
+                    target.StatusIconGlyph = "\uE74D";
+                    ApplyFilters();
+                    if (SelectedTask == target) SelectedTask = null;
+                    StatusMessage = $"Spostato in Eliminati: {target.Filename}";
+                }
             });
         }
         catch (Exception ex)
         {
             StatusMessage = $"Errore eliminazione: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private async Task RestoreTaskAsync(TaskItemViewModel? task)
+    {
+        var target = task ?? SelectedTask;
+        if (target is null) return;
+        try
+        {
+            await _ipcClient.RestoreTaskAsync(target.TaskId);
+            RunOnUI(() =>
+            {
+                target.IsDeleted = false;
+                if (target.TotalSize > 0 && target.DownloadedBytes >= target.TotalSize)
+                {
+                    target.Status = "COMPLETED";
+                    target.StatusDisplay = "Completato";
+                    target.StatusColor = "#10B981";
+                    target.StatusIconGlyph = "\uE73E";
+                }
+                else
+                {
+                    target.Status = "PAUSED";
+                    target.StatusDisplay = "In pausa";
+                    target.StatusColor = "#F59E0B";
+                    target.StatusIconGlyph = "\uE769";
+                }
+                target.ErrorMessage = null;
+                ApplyFilters();
+                StatusMessage = $"Ripristinato: {target.Filename}";
+            });
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Errore ripristino: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private async Task ClearDeletedTasksAsync()
+    {
+        try
+        {
+            await _ipcClient.ClearDeletedTasksAsync(deleteFiles: false);
+            RunOnUI(() =>
+            {
+                var deletedList = Tasks.Where(t => t.IsDeleted).ToList();
+                foreach (var t in deletedList)
+                {
+                    _taskIndex.Remove(t.TaskId);
+                    Tasks.Remove(t);
+                }
+                ApplyFilters();
+                StatusMessage = "Cestino svuotato con successo.";
+            });
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Errore svuotamento cestino: {ex.Message}";
         }
     }
 

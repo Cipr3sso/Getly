@@ -79,11 +79,14 @@ class QueueManager:
         for task in all_db_tasks:
             self._tasks[task.task_id] = task
 
+        # Startup health check & file reconciliation
+        await self.run_startup_health_check()
+
         # Re-enqueue pending or interrupted downloading tasks
         pending = self.state_store.get_pending_tasks()
         logger.info("Loaded %d pending tasks from database", len(pending))
         for task in pending:
-            if task.status != DownloadStatus.PAUSED:
+            if task.status not in (DownloadStatus.PAUSED, DownloadStatus.DELETED, DownloadStatus.CANCELLED):
                 task.status = DownloadStatus.PENDING
                 await self._task_queue.put(task)
 
@@ -97,6 +100,156 @@ class QueueManager:
     def get_task(self, task_id: str) -> Optional[DownloadTask]:
         """Retrieves a task by ID."""
         return self._tasks.get(task_id) or self.state_store.get_task(task_id)
+
+    async def run_startup_health_check(self) -> Dict[str, Any]:
+        """
+        Runs comprehensive startup validation:
+        1. Tests SQLite database integrity (PRAGMA integrity_check).
+        2. Validates download directory structure and write permissions.
+        3. Reconciles existing files on disk vs Database:
+           - Automatically indexes any files present in the download directory that are not yet tracked.
+           - Verifies existing completed tasks on disk; flags missing files as 'File rimosso o spostato' in DELETED.
+        """
+        report: Dict[str, Any] = {
+            "database_ok": False,
+            "directories_ok": False,
+            "indexed_files": 0,
+            "missing_files_detected": 0,
+        }
+
+        # 1. Database Integrity Check
+        try:
+            report["database_ok"] = self.state_store.verify_integrity()
+        except Exception as exc:
+            logger.error("Startup database check failed: %s", exc)
+
+        # 2. Directory Validation
+        try:
+            self.default_download_dir.mkdir(parents=True, exist_ok=True)
+            test_file = self.default_download_dir / ".getly_health_test"
+            test_file.write_text("ok", encoding="utf-8")
+            test_file.unlink(missing_ok=True)
+            report["directories_ok"] = True
+        except Exception as exc:
+            logger.error("Startup directory check failed: %s", exc)
+
+        # 3. Check for existing completed tasks whose files are missing on disk
+        for task in list(self._tasks.values()):
+            if task.filename:
+                target_path = Path(task.destination_dir) / task.filename
+                if task.status == DownloadStatus.COMPLETED and not target_path.is_file():
+                    task.status = DownloadStatus.DELETED
+                    task.error_message = "File rimosso o spostato"
+                    self.state_store.update_task_status(task.task_id, DownloadStatus.DELETED, error="File rimosso o spostato")
+                    report["missing_files_detected"] += 1
+                    logger.info("Startup check: File for task %s missing on disk (%s). Moved to DELETED.", task.task_id, target_path)
+
+        # 4. Scan download directory and subdirectories for untracked files
+        known_file_paths = set()
+        for task in self._tasks.values():
+            if task.filename:
+                try:
+                    known_file_paths.add(str((Path(task.destination_dir) / task.filename).resolve()).lower())
+                except Exception:
+                    pass
+
+        ignored_extensions = {
+            ".getly", ".part", ".tmp", ".crdownload", ".aria2", ".torrent",
+            ".db", ".db-wal", ".db-shm", ".sqlite", ".sqlite3", ".log", ".txt", ".json", ".lock", ".bak"
+        }
+
+        db_file = None
+        if hasattr(self, "state_store") and getattr(self.state_store, "db_path", None):
+            try:
+                db_file = self.state_store.db_path.resolve()
+            except Exception:
+                pass
+
+        try:
+            dirs_to_scan = [self.default_download_dir]
+            if self.default_download_dir.exists():
+                for sub in self.default_download_dir.iterdir():
+                    if sub.is_dir() and not sub.name.startswith("."):
+                        dirs_to_scan.append(sub)
+
+            for d in dirs_to_scan:
+                if not d.exists():
+                    continue
+                for entry in d.iterdir():
+                    if not entry.is_file() or entry.name.startswith("."):
+                        continue
+                    if entry.suffix.lower() in ignored_extensions:
+                        continue
+
+                    try:
+                        resolved_entry = entry.resolve()
+                        if db_file and resolved_entry == db_file:
+                            continue
+                        entry_resolved = str(resolved_entry).lower()
+                    except Exception:
+                        continue
+
+                    if entry_resolved not in known_file_paths:
+                        try:
+                            file_size = entry.stat().st_size
+                            created_time = entry.stat().st_ctime
+                        except Exception:
+                            file_size = 0
+                            created_time = time.time()
+
+                        if file_size > 0:
+                            cat = detect_category(entry.name)
+                            imported_task = DownloadTask(
+                                url=f"file://{entry.name}",
+                                destination_dir=entry.parent,
+                                filename=entry.name,
+                                status=DownloadStatus.COMPLETED,
+                                total_size=file_size,
+                                downloaded_bytes=file_size,
+                                category=cat,
+                                created_at=created_time,
+                            )
+                            self.state_store.save_task(imported_task)
+                            self._tasks[imported_task.task_id] = imported_task
+                            known_file_paths.add(entry_resolved)
+                            report["indexed_files"] += 1
+                            logger.info("Startup check: Indexed untracked file into manager: %s (%d bytes)", entry.name, file_size)
+        except Exception as exc:
+            logger.warning("Startup scan for untracked files failed: %s", exc)
+
+        logger.info(
+            "Startup Health Check completed: DB=%s, Dirs=%s, Indexed=%d, MissingMoved=%d",
+            report["database_ok"],
+            report["directories_ok"],
+            report["indexed_files"],
+            report["missing_files_detected"],
+        )
+        return report
+
+    def check_files_status(self) -> None:
+        """
+        Verifies on-disk file existence for COMPLETED and DELETED tasks.
+        If a COMPLETED task's file was moved or deleted on disk, marks it as DELETED with 'File rimosso o spostato'.
+        If a DELETED task marked with 'File rimosso o spostato' has its file restored, clears the error message.
+        """
+        for task in list(self._tasks.values()):
+            if not task.filename:
+                continue
+            try:
+                target_path = Path(task.destination_dir) / task.filename
+                file_exists = target_path.is_file()
+
+                if task.status == DownloadStatus.COMPLETED and not file_exists:
+                    logger.info("File %s moved or deleted on disk. Moving task %s to DELETED.", target_path, task.task_id)
+                    task.status = DownloadStatus.DELETED
+                    task.error_message = "File rimosso o spostato"
+                    self.state_store.update_task_status(task.task_id, DownloadStatus.DELETED, error="File rimosso o spostato")
+                elif task.status == DownloadStatus.DELETED and task.error_message == "File rimosso o spostato" and file_exists:
+                    logger.info("File %s restored on disk for task %s.", target_path, task.task_id)
+                    task.error_message = None
+                    self.state_store.update_task_status(task.task_id, DownloadStatus.DELETED, error=None)
+            except Exception:
+                pass
 
     def get_adapter_transfer_rates(self) -> Dict[str, Tuple[float, float]]:
         """
@@ -289,6 +442,41 @@ class QueueManager:
         else:
             initial_status = DownloadStatus.PENDING
 
+        # Check if an existing task with the same URL already exists in non-downloading state
+        for existing in list(self._tasks.values()):
+            if existing.url == clean_url or existing.url == url:
+                if existing.status in (DownloadStatus.FAILED, DownloadStatus.PAUSED, DownloadStatus.WAITING, DownloadStatus.CANCELLED, DownloadStatus.DELETED):
+                    logger.info("Found existing task %s (status: %s) for URL %s. Updating and resuming.", existing.task_id, existing.status, url)
+                    if cookies:
+                        existing.cookies = cookies
+                    if user_agent:
+                        existing.user_agent = user_agent
+                    if referer:
+                        existing.referer = referer
+                    if task_headers:
+                        existing.headers = {**(existing.headers or {}), **task_headers}
+                    if clean_filename and (not existing.filename or existing.filename.startswith("download")):
+                        existing.filename = clean_filename
+                    if parsed_total_size > 0 and (not existing.total_size or existing.total_size <= 0):
+                        existing.total_size = parsed_total_size
+
+                    existing.error_message = None
+                    existing.status = DownloadStatus.PENDING if (auto_start is not False and not start_paused) else DownloadStatus.PAUSED
+                    self.state_store.save_task(existing)
+                    self._tasks[existing.task_id] = existing
+
+                    if existing.status == DownloadStatus.PENDING:
+                        await self._task_queue.put(existing)
+
+                    if self.on_task_added:
+                        try:
+                            res = self.on_task_added(existing)
+                            if asyncio.iscoroutine(res):
+                                asyncio.create_task(res)
+                        except Exception:
+                            pass
+                    return existing
+
         task = DownloadTask(
             url=url,
             destination_dir=dest,
@@ -403,8 +591,14 @@ class QueueManager:
         logger.info("Cancelled task %s", task_id)
         return True
 
-    async def delete_task(self, task_id: str, delete_files: bool = False) -> bool:
-        """Cancels and deletes a task from storage and memory, optionally deleting files on disk."""
+    async def delete_task(self, task_id: str, delete_files: bool = False, permanent: bool = True) -> bool:
+        """
+        Cancels and deletes a task.
+        If permanent=True or delete_files=True:
+            Purges from SQLite database and memory, optionally deleting files on disk.
+        If permanent=False and delete_files=False:
+            Soft-deletes the task to DownloadStatus.DELETED so it moves to the 'Eliminati' section.
+        """
         task = self.get_task(task_id)
         if delete_files and task:
             try:
@@ -416,10 +610,46 @@ class QueueManager:
                 logger.warning("Error deleting file on disk for task %s: %s", task_id, exc)
 
         await self.cancel_task(task_id)
-        self._tasks.pop(task_id, None)
-        self.state_store.delete_task(task_id)
-        logger.info("Deleted task %s", task_id)
+
+        if permanent or delete_files:
+            self._tasks.pop(task_id, None)
+            self.state_store.delete_task(task_id)
+            logger.info("Permanently deleted task %s", task_id)
+        else:
+            if task:
+                task.status = DownloadStatus.DELETED
+                task.error_message = "Rimosso dalla lista"
+                self.state_store.update_task_status(task_id, DownloadStatus.DELETED, error=task.error_message)
+                self._tasks[task_id] = task
+                logger.info("Soft-deleted task %s into 'Eliminati'", task_id)
         return True
+
+    async def restore_task(self, task_id: str) -> bool:
+        """Restores a soft-deleted task back to COMPLETED or PAUSED."""
+        task = self.get_task(task_id)
+        if not task:
+            return False
+
+        if task.total_size and task.downloaded_bytes >= task.total_size:
+            target_status = DownloadStatus.COMPLETED
+        else:
+            target_status = DownloadStatus.PAUSED
+
+        task.status = target_status
+        task.error_message = None
+        self.state_store.update_task_status(task_id, target_status, error=None)
+        self._tasks[task_id] = task
+        logger.info("Restored task %s to status %s", task_id, target_status)
+        return True
+
+    async def clear_deleted_tasks(self, delete_files: bool = False) -> int:
+        """Permanently purges all tasks currently in 'Eliminati'."""
+        deleted_ids = [t.task_id for t in list(self._tasks.values()) if t.status == DownloadStatus.DELETED]
+        count = 0
+        for tid in deleted_ids:
+            if await self.delete_task(tid, delete_files=delete_files, permanent=True):
+                count += 1
+        return count
 
     async def update_task_url(self, task_id: str, new_url: str, restart: bool = True) -> bool:
         """

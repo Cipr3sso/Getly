@@ -83,6 +83,8 @@ class NamedPipeServer:
             "task.pause": self._rpc_task_pause,
             "task.resume": self._rpc_task_resume,
             "task.delete": self._rpc_task_delete,
+            "task.restore": self._rpc_task_restore,
+            "task.clear_deleted": self._rpc_task_clear_deleted,
             "task.update_url": self._rpc_task_update_url,
             "torrent.get_files": self._rpc_torrent_get_files,
             "torrent.set_priority": self._rpc_torrent_set_priority,
@@ -90,6 +92,7 @@ class NamedPipeServer:
             "system.get_stats": self._rpc_system_get_stats,
             "system.toggle_adapter": self._rpc_system_toggle_adapter,
             "system.set_settings": self._rpc_system_set_settings,
+            "system.health_check": self._rpc_system_health_check,
         }
 
     @property
@@ -313,8 +316,25 @@ class NamedPipeServer:
         if not task_id:
             raise ValueError("Missing 'task_id' parameter")
         delete_files = bool(params.get("delete_files", False))
-        success = await self.queue_manager.delete_task(task_id, delete_files=delete_files)
-        return {"success": success, "task_id": task_id, "delete_files": delete_files}
+        permanent = bool(params.get("permanent", False))
+        success = await self.queue_manager.delete_task(task_id, delete_files=delete_files, permanent=permanent)
+        return {"success": success, "task_id": task_id, "delete_files": delete_files, "permanent": permanent}
+
+    async def _rpc_task_restore(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        task_id = params.get("task_id")
+        if not task_id:
+            raise ValueError("Missing 'task_id' parameter")
+        success = await self.queue_manager.restore_task(task_id)
+        return {"success": success, "task_id": task_id}
+
+    async def _rpc_task_clear_deleted(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        delete_files = bool(params.get("delete_files", False))
+        count = await self.queue_manager.clear_deleted_tasks(delete_files=delete_files)
+        return {"success": True, "count": count}
+
+    async def _rpc_system_health_check(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        report = await self.queue_manager.run_startup_health_check()
+        return report
 
     async def _rpc_task_update_url(self, params: Dict[str, Any]) -> Dict[str, Any]:
         task_id = params.get("task_id")

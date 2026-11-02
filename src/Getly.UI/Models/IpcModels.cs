@@ -210,3 +210,18 @@ public sealed record TorrentFileDto
     [JsonPropertyName("priority")]
     public int Priority { get; init; }
 }
+
+public sealed record SystemHealthReportDto
+{
+    [JsonPropertyName("database_ok")]
+    public bool DatabaseOk { get; init; }
+
+    [JsonPropertyName("directories_ok")]
+    public bool DirectoriesOk { get; init; }
+
+    [JsonPropertyName("indexed_files")]
+    public int IndexedFiles { get; init; }
+
+    [JsonPropertyName("missing_files_detected")]
+    public int MissingFilesDetected { get; init; }
+}

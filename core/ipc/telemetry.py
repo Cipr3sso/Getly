@@ -87,6 +87,14 @@ class TelemetryDispatcher:
         if self.pipe_server.connected_client_count == 0:
             return
 
+        # Periodic check for files moved or deleted outside Getly (every ~2.5s)
+        self._tick_counter = getattr(self, "_tick_counter", 0) + 1
+        if self._tick_counter % 10 == 0:
+            try:
+                self.queue_manager.check_files_status()
+            except Exception as exc:
+                logger.debug("Error checking file status: %s", exc)
+
         all_tasks = self.queue_manager.get_all_tasks()
         active_tasks = [t for t in all_tasks if t.status == DownloadStatus.DOWNLOADING]
 

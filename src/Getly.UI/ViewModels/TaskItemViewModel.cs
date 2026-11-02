@@ -73,6 +73,11 @@ public partial class TaskItemViewModel : ObservableObject
     private bool _isTorrent;
 
     [ObservableProperty]
+    private bool _isDeleted;
+
+    public bool IsNotDeleted => !IsDeleted;
+
+    [ObservableProperty]
     private bool _isSelected;
 
     [ObservableProperty]
@@ -181,12 +186,27 @@ public partial class TaskItemViewModel : ObservableObject
                 StatusColor = "#9CA3AF"; // Gray
                 StatusIconGlyph = "\uE711"; // Cancel
                 break;
+            case "DELETED":
+                if (!string.IsNullOrWhiteSpace(ErrorMessage) && ErrorMessage.Contains("rimosso o spostato", StringComparison.OrdinalIgnoreCase))
+                {
+                    StatusDisplay = "File rimosso o spostato";
+                    StatusColor = "#EF4444"; // Vibrant Red
+                }
+                else
+                {
+                    StatusDisplay = "Eliminato";
+                    StatusColor = "#9CA3AF"; // Gray
+                }
+                StatusIconGlyph = "\uE74D"; // Trash
+                break;
             default:
                 StatusDisplay = "In attesa";
                 StatusColor = "#60CDFF";
                 StatusIconGlyph = "\uE823"; // Hourglass / Sync
                 break;
         }
+        IsDeleted = string.Equals(dto.Status, "DELETED", StringComparison.OrdinalIgnoreCase);
+        OnPropertyChanged(nameof(IsNotDeleted));
         OnPropertyChanged(nameof(CategoryBackground));
         OnPropertyChanged(nameof(SizeMbFormatted));
     }

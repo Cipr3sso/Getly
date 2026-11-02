@@ -100,6 +100,11 @@
                         <FontIcon Glyph="&#xE774;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Content="Eliminati" Tag="DELETED">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE74D;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Content="Schede di Rete" Tag="Network">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE839;" />
@@ -141,6 +146,7 @@
                             <AppBarSeparator />
                             <AppBarButton Icon="Play" Label="Riprendi" Command="{x:Bind ViewModel.ResumeTaskCommand}" CommandParameter="{x:Bind ViewModel.SelectedTask, Mode=OneWay}" />
                             <AppBarButton Icon="Pause" Label="Pausa" Command="{x:Bind ViewModel.PauseTaskCommand}" CommandParameter="{x:Bind ViewModel.SelectedTask, Mode=OneWay}" />
+                            <AppBarButton Icon="Undo" Label="Ripristina" Command="{x:Bind ViewModel.RestoreTaskCommand}" CommandParameter="{x:Bind ViewModel.SelectedTask, Mode=OneWay}" ToolTipService.ToolTip="Ripristina il download selezionato da Eliminati" />
                             <AppBarButton Icon="Delete" Label="Elimina" Click="OnDeleteButtonClick" />
                         </CommandBar>
 
@@ -215,17 +221,19 @@
                                     ToolTipService.ToolTip="{x:Bind ErrorToolTip, Mode=OneWay}">
                                     <Border.ContextFlyout>
                                         <MenuFlyout>
-                                            <MenuFlyoutItem Text="Avvia / Riprendi" Icon="Play" Click="OnResumeTaskClick" />
-                                            <MenuFlyoutItem Text="Pausa" Icon="Pause" Click="OnPauseTaskClick" />
+                                            <MenuFlyoutItem Text="Ripristina download" Icon="Undo" Click="OnRestoreTaskClick" Visibility="{x:Bind IsDeleted, Mode=OneWay}" />
+                                            <MenuFlyoutItem Text="Elimina definitivamente" Icon="Delete" Click="OnPermanentDeleteClick" Visibility="{x:Bind IsDeleted, Mode=OneWay}" />
+                                            <MenuFlyoutItem Text="Avvia / Riprendi" Icon="Play" Click="OnResumeTaskClick" Visibility="{x:Bind IsNotDeleted, Mode=OneWay}" />
+                                            <MenuFlyoutItem Text="Pausa" Icon="Pause" Click="OnPauseTaskClick" Visibility="{x:Bind IsNotDeleted, Mode=OneWay}" />
                                             <MenuFlyoutItem Text="Risolvi verifica nel browser" Icon="Globe" Visibility="{x:Bind IsCloudflareError, Mode=OneWay}" Click="OnSolveCloudflareClick" />
-                                            <MenuFlyoutSeparator />
-                                            <MenuFlyoutItem Text="Apri nella finestra mini" Icon="OpenWith" Click="OnShowFloatingWindowClick" />
+                                            <MenuFlyoutSeparator Visibility="{x:Bind IsNotDeleted, Mode=OneWay}" />
+                                            <MenuFlyoutItem Text="Apri nella finestra mini" Icon="OpenWith" Click="OnShowFloatingWindowClick" Visibility="{x:Bind IsNotDeleted, Mode=OneWay}" />
                                             <MenuFlyoutItem Text="Dettagli del download" Icon="Document" Click="OnShowDetailsClick" />
                                             <MenuFlyoutItem Text="Mostra nella cartella" Icon="Folder" Click="OnOpenFolderClick" />
                                             <MenuFlyoutItem Text="Apri file" Icon="OpenFile" Click="OnOpenFileClick" />
                                             <MenuFlyoutItem Text="Copia URL sorgente" Icon="Copy" Click="OnCopyUrlClick" />
-                                            <MenuFlyoutSeparator />
-                                            <MenuFlyoutItem Text="Rimuovi dalla lista" Icon="Delete" Click="OnRemoveFromListClick" />
+                                            <MenuFlyoutSeparator Visibility="{x:Bind IsNotDeleted, Mode=OneWay}" />
+                                            <MenuFlyoutItem Text="Rimuovi dalla lista" Icon="Delete" Click="OnRemoveFromListClick" Visibility="{x:Bind IsNotDeleted, Mode=OneWay}" />
                                             <MenuFlyoutItem Text="Elimina file da disco" Icon="Cancel" Click="OnDeleteFromDiskClick" />
                                         </MenuFlyout>
                                     </Border.ContextFlyout>

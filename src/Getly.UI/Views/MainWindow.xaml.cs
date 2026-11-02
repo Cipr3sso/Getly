@@ -399,14 +399,15 @@ public sealed partial class MainWindow : Window
                 Margin = new Thickness(0, 8, 0, 0)
             };
 
-            string title = selectedTasks.Count == 1
-                ? $"Eliminare il download '{selectedTasks[0].Filename}'?"
-                : $"Eliminare i {selectedTasks.Count} download selezionati?";
+            bool isInDeleted = ViewModel.SelectedNavCategory == "DELETED";
+            string title = isInDeleted
+                ? (selectedTasks.Count == 1 ? $"Eliminare definitivamente '{selectedTasks[0].Filename}'?" : $"Eliminare definitivamente i {selectedTasks.Count} download?")
+                : (selectedTasks.Count == 1 ? $"Spostare in Eliminati '{selectedTasks[0].Filename}'?" : $"Spostare in Eliminati i {selectedTasks.Count} download?");
 
             var dialog = new ContentDialog
             {
                 Title = title,
-                PrimaryButtonText = "Elimina",
+                PrimaryButtonText = isInDeleted ? "Elimina definitivamente" : "Sposta in Eliminati",
                 CloseButtonText = "Annulla",
                 DefaultButton = ContentDialogButton.Close,
                 Content = new StackPanel
@@ -416,7 +417,9 @@ public sealed partial class MainWindow : Window
                     {
                         new TextBlock
                         {
-                            Text = $"Stai per rimuovere {selectedTasks.Count} download dalla coda di Getly.",
+                            Text = isInDeleted
+                                ? $"Stai per eliminare definitivamente {selectedTasks.Count} download dal database."
+                                : $"Stai per spostare {selectedTasks.Count} download nella sezione 'Eliminati'. Potrai ripristinarli in qualsiasi momento.",
                             TextWrapping = TextWrapping.Wrap,
                             Foreground = GetThemeSecondaryBrush()
                         },
@@ -559,6 +562,24 @@ public sealed partial class MainWindow : Window
             dataPackage.SetText(task.Url);
             Clipboard.SetContent(dataPackage);
             ViewModel.StatusMessage = $"URL copiato negli appunti: {task.Filename}";
+        }
+    }
+
+    private void OnRestoreTaskClick(object sender, RoutedEventArgs e)
+    {
+        var task = GetTask(sender);
+        if (task != null)
+        {
+            ViewModel.RestoreTaskCommand.Execute(task);
+        }
+    }
+
+    private void OnPermanentDeleteClick(object sender, RoutedEventArgs e)
+    {
+        var task = GetTask(sender);
+        if (task != null)
+        {
+            ViewModel.DeleteTaskCommand.Execute(task);
         }
     }
 
@@ -995,7 +1016,7 @@ public sealed partial class MainWindow : Window
             {
                 Title = "Verifica Cloudflare / WAF Richiesta",
                 PrimaryButtonText = "Apri nel Browser",
-                SecondaryButtonText = "Annulla Download",
+                SecondaryButtonText = "Riprova / Riprendi",
                 CloseButtonText = "Chiudi",
                 DefaultButton = ContentDialogButton.Primary
             };
@@ -1048,7 +1069,7 @@ public sealed partial class MainWindow : Window
             }
             else if (result == ContentDialogResult.Secondary)
             {
-                ViewModel.DeleteTaskCommand.Execute(task);
+                ViewModel.ResumeTaskCommand.Execute(task);
             }
         }
         finally

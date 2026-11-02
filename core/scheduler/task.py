@@ -15,6 +15,7 @@ class DownloadStatus(str, Enum):
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
+    DELETED = "DELETED"
 
 
 @dataclass

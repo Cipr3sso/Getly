@@ -27,6 +27,17 @@ class StateStore:
         conn.execute("PRAGMA synchronous=NORMAL;")
         return conn
 
+    def verify_integrity(self) -> bool:
+        """Runs SQLite PRAGMA integrity_check to verify database file health."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute("PRAGMA integrity_check;")
+                row = cursor.fetchone()
+                return bool(row and row[0] == "ok")
+        except Exception as exc:
+            logger.error("Database integrity check failed: %s", exc)
+            return False
+
     def _init_db(self) -> None:
         with self._get_connection() as conn:
             conn.execute("""

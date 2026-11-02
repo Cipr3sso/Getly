@@ -295,9 +295,26 @@ public sealed class IpcClient : IAsyncDisposable, IDisposable
         await InvokeAsync("task.resume", new { task_id = taskId }, cancellationToken: cancellationToken);
     }
 
-    public async Task DeleteTaskAsync(string taskId, bool deleteFiles = false, CancellationToken cancellationToken = default)
+    public async Task DeleteTaskAsync(string taskId, bool deleteFiles = false, bool permanent = false, CancellationToken cancellationToken = default)
     {
-        await InvokeAsync("task.delete", new { task_id = taskId, delete_files = deleteFiles }, cancellationToken: cancellationToken);
+        await InvokeAsync("task.delete", new { task_id = taskId, delete_files = deleteFiles, permanent = permanent }, cancellationToken: cancellationToken);
+    }
+
+    public async Task RestoreTaskAsync(string taskId, CancellationToken cancellationToken = default)
+    {
+        await InvokeAsync("task.restore", new { task_id = taskId }, cancellationToken: cancellationToken);
+    }
+
+    public async Task ClearDeletedTasksAsync(bool deleteFiles = false, CancellationToken cancellationToken = default)
+    {
+        await InvokeAsync("task.clear_deleted", new { delete_files = deleteFiles }, cancellationToken: cancellationToken);
+    }
+
+    public async Task<SystemHealthReportDto?> HealthCheckAsync(CancellationToken cancellationToken = default)
+    {
+        var result = await InvokeAsync("system.health_check", null, cancellationToken: cancellationToken);
+        if (result.ValueKind == JsonValueKind.Null) return null;
+        return JsonSerializer.Deserialize<SystemHealthReportDto>(result.GetRawText());
     }
 
     public async Task UpdateTaskUrlAsync(string taskId, string newUrl, bool restart = true, CancellationToken cancellationToken = default)
