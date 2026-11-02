@@ -247,6 +247,7 @@
                                         <MenuFlyout>
                                             <MenuFlyoutItem Text="Avvia / Riprendi" Icon="Play" Click="OnResumeTaskClick" />
                                             <MenuFlyoutItem Text="Pausa" Icon="Pause" Click="OnPauseTaskClick" />
+                                            <MenuFlyoutItem Text="Risolvi verifica nel browser" Icon="Globe" Visibility="{x:Bind IsCloudflareError, Mode=OneWay}" Click="OnSolveCloudflareClick" />
                                             <MenuFlyoutSeparator />
                                             <MenuFlyoutItem Text="Mostra nella cartella" Icon="Folder" Click="OnOpenFolderClick" />
                                             <MenuFlyoutItem Text="Apri file" Icon="OpenFile" Click="OnOpenFileClick" />
@@ -300,6 +301,20 @@
                                         <StackPanel Grid.Column="4" VerticalAlignment="Center" Spacing="2">
                                             <TextBlock Text="{x:Bind SpeedFormatted, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" Foreground="{x:Bind StatusColor, Mode=OneWay}" />
                                             <TextBlock Text="{x:Bind StatusDisplay, Mode=OneWay}" FontSize="10" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                            <HyperlinkButton
+                                                Padding="0"
+                                                Margin="0"
+                                                Height="18"
+                                                FontSize="10"
+                                                Foreground="#F59E0B"
+                                                Visibility="{x:Bind IsCloudflareError, Mode=OneWay}"
+                                                Click="OnSolveCloudflareClick"
+                                                ToolTipService.ToolTip="Risolvi la verifica di sicurezza Cloudflare aprendo il link nel browser">
+                                                <StackPanel Orientation="Horizontal" Spacing="3">
+                                                    <FontIcon Glyph="&#xE727;" FontSize="10" />
+                                                    <TextBlock Text="Risolvi nel browser" FontWeight="SemiBold" />
+                                                </StackPanel>
+                                            </HyperlinkButton>
                                         </StackPanel>
 
                                         <!-- Progress Bar & % / ETA -->

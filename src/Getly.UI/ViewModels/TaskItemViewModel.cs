@@ -67,6 +67,9 @@ public partial class TaskItemViewModel : ObservableObject
     private bool _isError;
 
     [ObservableProperty]
+    private bool _isCloudflareError;
+
+    [ObservableProperty]
     private bool _isTorrent;
 
     [ObservableProperty]
@@ -122,6 +125,12 @@ public partial class TaskItemViewModel : ObservableObject
         IsCompleted = string.Equals(dto.Status, "COMPLETED", StringComparison.OrdinalIgnoreCase);
         IsError = string.Equals(dto.Status, "FAILED", StringComparison.OrdinalIgnoreCase)
                   || string.Equals(dto.Status, "ERROR", StringComparison.OrdinalIgnoreCase);
+        IsCloudflareError = IsError && !string.IsNullOrWhiteSpace(ErrorMessage) &&
+            (ErrorMessage.Contains("403", StringComparison.OrdinalIgnoreCase)
+             || ErrorMessage.Contains("Cloudflare", StringComparison.OrdinalIgnoreCase)
+             || ErrorMessage.Contains("WAF", StringComparison.OrdinalIgnoreCase)
+             || ErrorMessage.Contains("Captcha", StringComparison.OrdinalIgnoreCase)
+             || ErrorMessage.Contains("Turnstile", StringComparison.OrdinalIgnoreCase));
         IsPendingConfirmation = string.Equals(dto.Status, "WAITING", StringComparison.OrdinalIgnoreCase)
                                 || string.Equals(dto.Status, "PENDING_CONFIRMATION", StringComparison.OrdinalIgnoreCase)
                                 || string.Equals(dto.Status, "WAITING_CONFIRMATION", StringComparison.OrdinalIgnoreCase)

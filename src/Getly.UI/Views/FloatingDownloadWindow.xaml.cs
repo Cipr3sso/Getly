@@ -224,8 +224,17 @@ public sealed partial class FloatingDownloadWindow : Window
 
             ActionIcon1.Glyph = "\uE72C"; // Refresh / Retry glyph
             ActionText1.Text = "Riprova";
-            ActionIcon2.Glyph = "\uED25";
-            ActionText2.Text = "Cartella";
+
+            if (_currentTask.IsCloudflareError)
+            {
+                ActionIcon2.Glyph = "\uE727"; // Globe / Browser
+                ActionText2.Text = "Risolvi";
+            }
+            else
+            {
+                ActionIcon2.Glyph = "\uED25";
+                ActionText2.Text = "Cartella";
+            }
 
             StatusBadgeTextBlock.Text = "Errore";
             StopAutoCloseTimer();
@@ -366,6 +375,19 @@ public sealed partial class FloatingDownloadWindow : Window
     {
         StopAutoCloseTimer();
         if (_currentTask is null) return;
+        if (_currentTask.IsCloudflareError)
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = _currentTask.Url,
+                    UseShellExecute = true
+                });
+            }
+            catch { }
+            return;
+        }
         _viewModel.OpenContainingFolderCommand.Execute(_currentTask);
     }
 

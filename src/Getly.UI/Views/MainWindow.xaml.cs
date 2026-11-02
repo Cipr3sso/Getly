@@ -533,6 +533,13 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void OnSolveCloudflareClick(object sender, RoutedEventArgs e)
+    {
+        var task = GetTask(sender);
+        if (task == null) return;
+        _ = ShowCloudflareSolveDialogAsync(task);
+    }
+
     private void OnRowDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
         var task = GetTask(sender);
@@ -851,6 +858,44 @@ public sealed partial class MainWindow : Window
                     Padding = new Thickness(8, 6, 8, 6)
                 };
                 errorPanel.Children.Add(errorTextBox);
+
+                if (task.IsCloudflareError)
+                {
+                    var solveBtn = new Button
+                    {
+                        Content = new StackPanel
+                        {
+                            Orientation = Orientation.Horizontal,
+                            Spacing = 6,
+                            Children =
+                            {
+                                new FontIcon { Glyph = "\uE727", FontSize = 12, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 245, 158, 11)) },
+                                new TextBlock { Text = "Risolvi verifica Cloudflare nel browser", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 245, 158, 11)) }
+                            }
+                        },
+                        Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(30, 245, 158, 11)),
+                        BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(120, 245, 158, 11)),
+                        BorderThickness = new Thickness(1),
+                        CornerRadius = new CornerRadius(4),
+                        Margin = new Thickness(0, 8, 0, 0),
+                        HorizontalAlignment = HorizontalAlignment.Left
+                    };
+                    solveBtn.Click += (s, args) =>
+                    {
+                        try
+                        {
+                            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                            {
+                                FileName = task.Url,
+                                UseShellExecute = true
+                            });
+                            ViewModel.StatusMessage = $"Aperto nel browser: risolvi la verifica per {task.Filename}";
+                        }
+                        catch { }
+                    };
+                    errorPanel.Children.Add(solveBtn);
+                }
+
                 contentPanel.Children.Add(errorPanel);
             }
 
@@ -872,6 +917,78 @@ public sealed partial class MainWindow : Window
             PrepareDialog(dialog);
 
             await dialog.ShowAsync();
+        }
+        finally
+        {
+            _isDialogOpen = false;
+        }
+    }
+
+    private async Task ShowCloudflareSolveDialogAsync(TaskItemViewModel task)
+    {
+        if (_isDialogOpen) return;
+        _isDialogOpen = true;
+
+        try
+        {
+            var dialog = new ContentDialog
+            {
+                Title = "Verifica Cloudflare / WAF Richiesta",
+                PrimaryButtonText = "Apri nel Browser",
+                SecondaryButtonText = "Annulla Download",
+                CloseButtonText = "Chiudi",
+                DefaultButton = ContentDialogButton.Primary
+            };
+
+            var stack = new StackPanel { Spacing = 12 };
+            stack.Children.Add(new TextBlock
+            {
+                Text = $"Il download di \"{task.Filename}\" è protetto dalla verifica di sicurezza Cloudflare (Turnstile / WAF).",
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = 13
+            });
+
+            stack.Children.Add(new TextBlock
+            {
+                Text = "Vuoi aprire il collegamento nel tuo browser per confermare di non essere un bot? Una volta completata la verifica nel browser, potrai riprendere il download.",
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = 12,
+                Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"]
+            });
+
+            var urlBox = new TextBox
+            {
+                Text = task.Url,
+                IsReadOnly = true,
+                FontSize = 11,
+                Margin = new Thickness(0, 4, 0, 0)
+            };
+            stack.Children.Add(urlBox);
+
+            dialog.Content = stack;
+            PrepareDialog(dialog);
+
+            var result = await dialog.ShowAsync();
+            if (result == ContentDialogResult.Primary)
+            {
+                try
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = task.Url,
+                        UseShellExecute = true
+                    });
+                    ViewModel.StatusMessage = $"Aperto nel browser: risolvi la verifica per {task.Filename}";
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MainWindow] Could not launch browser: {ex.Message}");
+                }
+            }
+            else if (result == ContentDialogResult.Secondary)
+            {
+                ViewModel.DeleteTaskCommand.Execute(task);
+            }
         }
         finally
         {
