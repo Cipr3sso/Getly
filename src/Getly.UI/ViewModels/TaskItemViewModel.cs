@@ -133,9 +133,18 @@ public partial class TaskItemViewModel : ObservableObject
         DownloadedBytes = dto.DownloadedBytes;
         SpeedBps = dto.SpeedBps;
         UploadSpeedBps = dto.UploadSpeedBps;
-        Progress = Math.Clamp(dto.ProgressPercentage, 0.0, 100.0);
-        ProgressPercentageFormatted = $"{Progress:0.#}%";
-        ProgressRatio = Math.Clamp(dto.ProgressRatio, 0.0, 1.0);
+        if (string.Equals(dto.Status, "COMPLETED", StringComparison.OrdinalIgnoreCase))
+        {
+            Progress = 100.0;
+            ProgressPercentageFormatted = "100%";
+            ProgressRatio = 1.0;
+        }
+        else
+        {
+            Progress = Math.Clamp(dto.ProgressPercentage, 0.0, 100.0);
+            ProgressPercentageFormatted = $"{Progress:0.#}%";
+            ProgressRatio = Math.Clamp(dto.ProgressRatio, 0.0, 1.0);
+        }
         ErrorMessage = dto.ErrorMessage;
         IsTorrent = string.Equals(dto.TaskType, "TORRENT", StringComparison.OrdinalIgnoreCase);
         Seeds = dto.Seeds;

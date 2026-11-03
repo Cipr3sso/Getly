@@ -883,17 +883,35 @@ class QueueManager:
                     return
 
                 if success:
-                    task.status = DownloadStatus.COMPLETED
-                    task.speed_bps = 0.0
-                    task.upload_speed_bps = 0.0
-                    task.seeds = 0
-                    task.peers = 0
-                    if engine.target_filepath:
-                        task.filename = engine.target_filepath.name
-                    task.total_size = engine.info.total_size if engine.info else task.total_size
-                    task.downloaded_bytes = task.total_size
-                    self.state_store.save_task(task)
-                    logger.info("Task %s completed: %s", task.task_id, task.filename)
+                    actual_downloaded = getattr(engine, "_total_downloaded", 0)
+                    if hasattr(engine, "storage") and getattr(engine.storage, "filepath", None):
+                        try:
+                            fp = engine.storage.filepath
+                            if fp.exists():
+                                actual_downloaded = max(actual_downloaded, fp.stat().st_size)
+                        except Exception:
+                            pass
+
+                    total = (engine.info.total_size if engine.info else 0) or actual_downloaded
+                    if total <= 0:
+                        task.status = DownloadStatus.FAILED
+                        task.speed_bps = 0.0
+                        task.upload_speed_bps = 0.0
+                        task.error_message = getattr(engine, "error_message", None) or "Download terminato con 0 byte"
+                        self.state_store.update_task_status(task.task_id, DownloadStatus.FAILED, task.error_message)
+                        logger.warning("Task %s completed with 0 bytes: marking FAILED", task.task_id)
+                    else:
+                        task.status = DownloadStatus.COMPLETED
+                        task.speed_bps = 0.0
+                        task.upload_speed_bps = 0.0
+                        task.seeds = 0
+                        task.peers = 0
+                        if engine.target_filepath:
+                            task.filename = engine.target_filepath.name
+                        task.total_size = total
+                        task.downloaded_bytes = total
+                        self.state_store.save_task(task)
+                        logger.info("Task %s completed: %s (%d bytes)", task.task_id, task.filename, task.total_size)
                 else:
                     task.status = DownloadStatus.FAILED
                     task.speed_bps = 0.0

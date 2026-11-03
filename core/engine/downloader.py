@@ -368,6 +368,14 @@ class DownloadEngine:
                         if self.info:
                             self.info.total_size = int(cl)
 
+                    # Guard: verify we didn't receive an HTML page when expecting binary/media/archive
+                    ctype = (resp.headers.get("Content-Type") or "").lower()
+                    ext = filepath.suffix.lower()
+                    if ext in (".mp4", ".mkv", ".webm", ".avi", ".mov", ".zip", ".rar", ".7z", ".tar", ".gz", ".exe", ".msi", ".iso") and "text/html" in ctype:
+                        self.error_message = f"Ricevuta pagina HTML anziché file multimediale ({ctype})"
+                        logger.error("Single-stream received HTML content-type for binary file %s: %s", filepath.name, ctype)
+                        return False
+
                     primary_adapter = getattr(self.session_pool, "primary_adapter", None)
                     if not primary_adapter and getattr(self.session_pool, "all_adapters", None):
                         primary_adapter = self.session_pool.all_adapters[0]
@@ -386,6 +394,14 @@ class DownloadEngine:
                             total = (self.info.total_size if self.info else 0) or offset
                             pct = (offset / total * 100.0) if total > 0 else 0.0
                             self.on_progress(offset, total, pct)
+
+                    if offset == 0:
+                        self.error_message = "Risorsa vuota (0 byte ricevuti)"
+                        logger.warning("Single-stream download received 0 bytes for %s", self.url)
+                        return False
+
+                    if self.info and (self.info.total_size <= 0 or self.info.total_size < offset):
+                        self.info.total_size = offset
 
             return True
         except Exception as exc:
@@ -440,6 +456,14 @@ class DownloadEngine:
                             if self.info:
                                 self.info.total_size = int(cl)
 
+                        # Guard: verify we didn't receive an HTML page when expecting binary/media/archive
+                        ctype = (curl_resp.headers.get("content-type") or "").lower()
+                        ext = filepath.suffix.lower()
+                        if ext in (".mp4", ".mkv", ".webm", ".avi", ".mov", ".zip", ".rar", ".7z", ".tar", ".gz", ".exe", ".msi", ".iso") and "text/html" in ctype:
+                            self.error_message = f"Ricevuta pagina HTML anziché file multimediale ({ctype})"
+                            logger.error("curl_cffi single-stream received HTML for binary file %s: %s", filepath.name, ctype)
+                            return False
+
                         primary_adapter = getattr(self.session_pool, "primary_adapter", None)
                         if not primary_adapter and getattr(self.session_pool, "all_adapters", None):
                             primary_adapter = self.session_pool.all_adapters[0]
@@ -458,6 +482,13 @@ class DownloadEngine:
                                     total = (self.info.total_size if self.info else 0) or offset
                                     pct = (offset / total * 100.0) if total > 0 else 0.0
                                     self.on_progress(offset, total, pct)
+
+                        if offset == 0:
+                            self.error_message = "Risorsa vuota (0 byte ricevuti)"
+                            return False
+
+                        if self.info and (self.info.total_size <= 0 or self.info.total_size < offset):
+                            self.info.total_size = offset
 
                         if hasattr(self.storage, "flush"):
                             await self.storage.flush()

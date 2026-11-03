@@ -372,17 +372,48 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
       }
 
-      // 2. Fallback check on query params (e.g. ?file=archive.zip or ?url=https://.../foo.mp4)
-      for (const [, paramVal] of parsed.searchParams.entries()) {
+      // 2. Fallback check on query params (e.g. ?file=archive.zip or ?file-url=https://.../foo.mp4)
+      const IGNORED_PARAMS = new Set([
+        "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+        "ref", "referrer", "affiliate", "subid", "session_id", "analytics", "onboarding-flow"
+      ]);
+      const VALID_FILE_PARAM_KEYS = new Set([
+        "file", "url", "file-url", "file_url", "download", "download_url",
+        "link", "src", "target", "uri", "path", "media", "attachment", "source"
+      ]);
+
+      for (const [paramKey, paramVal] of parsed.searchParams.entries()) {
         if (!paramVal) continue;
-        const cleanParam = decodeURIComponent(paramVal).split("?")[0].split("#")[0];
+        const lowerKey = paramKey.toLowerCase();
+        if (lowerKey.startsWith("utm_") || IGNORED_PARAMS.has(lowerKey)) {
+          continue;
+        }
+
+        const decoded = decodeURIComponent(paramVal);
+        let isAbsoluteInnerUrl = false;
+        let innerUrlHref = "";
+        try {
+          const testUrl = new URL(decoded);
+          if (testUrl.protocol === "http:" || testUrl.protocol === "https:") {
+            isAbsoluteInnerUrl = true;
+            innerUrlHref = testUrl.href;
+          }
+        } catch (_) {}
+
+        // Accept if param key is a known file parameter or if param contains an absolute URL
+        if (!isAbsoluteInnerUrl && !VALID_FILE_PARAM_KEYS.has(lowerKey)) {
+          continue;
+        }
+
+        const cleanParam = decoded.split("?")[0].split("#")[0];
         const paramName = cleanParam.split("/").pop() || "";
         const lowerParam = paramName.toLowerCase();
         for (const [category, extList] of Object.entries(CATEGORY_DEFINITIONS)) {
           for (const ext of extList) {
             if (lowerParam.endsWith(ext)) {
+              const effectiveUrl = isAbsoluteInnerUrl ? innerUrlHref : rawUrl;
               return {
-                url: rawUrl,
+                url: effectiveUrl,
                 filename: paramName,
                 extension: ext.replace(/^\./, "").toUpperCase(),
                 category: category,

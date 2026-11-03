@@ -588,4 +588,86 @@ async def test_torrent_dialog_initialization_and_metadata_guard(tmp_path: Path):
     await pool.close()
 
 
+@pytest.mark.asyncio
+async def test_single_stream_rejects_html_content_type_for_binary_file(tmp_path: Path):
+    from aiohttp import web
+    from core.engine.downloader import DownloadEngine
+
+    async def html_handler(request):
+        return web.Response(
+            text="<!DOCTYPE html><html><body>Error or Landing Page</body></html>",
+            content_type="text/html",
+            status=200,
+        )
+
+    app = web.Application()
+    app.router.add_get("/fake_video.mp4", html_handler)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    port = site._server.sockets[0].getsockname()[1]
+    url = f"http://127.0.0.1:{port}/fake_video.mp4"
+
+    ad = NetworkAdapter(name="loop", ip="127.0.0.1", is_up=True, is_primary=True)
+    pool = MultiInterfaceSessionPool(adapters=[ad])
+    await pool.initialize()
+
+    downloader = DownloadEngine(
+        url=url,
+        destination_dir=tmp_path,
+        session_pool=pool,
+        custom_filename="fake_video.mp4",
+    )
+
+    success = await downloader.start()
+    assert success is False
+    assert "Ricevuta pagina HTML anziché file multimediale" in downloader.error_message
+
+    await pool.close()
+    await runner.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_queue_manager_rejects_zero_byte_completed_task(tmp_path: Path, monkeypatch):
+    from core.scheduler.task import DownloadTask, DownloadStatus
+    from core.engine.downloader import DownloadEngine
+
+    ad = NetworkAdapter(name="loop", ip="127.0.0.1", is_up=True, is_primary=True)
+    pool = MultiInterfaceSessionPool(adapters=[ad])
+    await pool.initialize()
+    store = StateStore(tmp_path / "zero_byte_test.db")
+    qm = QueueManager(session_pool=pool, state_store=store, default_download_dir=tmp_path)
+
+    task = DownloadTask(
+        task_id="test_zero_byte",
+        url="http://example.com/zero.dat",
+        destination_dir=str(tmp_path),
+        filename="zero.dat",
+        status=DownloadStatus.DOWNLOADING,
+        total_size=0,
+    )
+    store.save_task(task)
+
+    # Monkeypatch DownloadEngine.start to simulate a zero-byte successful return
+    async def fake_start(self):
+        self.info = None
+        self._total_downloaded = 0
+        return True
+
+    monkeypatch.setattr(DownloadEngine, "start", fake_start)
+
+    await qm._task_queue.put(task)
+    popped = await qm._task_queue.get()
+    await qm._run_task_guarded(popped)
+
+    saved_task = store.get_task(task.task_id)
+    assert saved_task.status == DownloadStatus.FAILED
+    assert "0 byte" in saved_task.error_message
+
+    await pool.close()
+
+
+
 
