@@ -89,7 +89,26 @@ public partial class NetworkAdapterItemViewModel : ObservableObject
 
         if (IsVpn)
         {
-            TypeBadge = "VPN NordLynx / Killswitch";
+            string provider = "VPN";
+            string combined = $"{DisplayName} {Name}".ToLowerInvariant();
+            if (combined.Contains("nord"))
+                provider = "NordVPN";
+            else if (combined.Contains("proton"))
+                provider = "Proton VPN";
+            else if (combined.Contains("mullvad"))
+                provider = "Mullvad";
+            else if (combined.Contains("wireguard"))
+                provider = "WireGuard";
+            else if (combined.Contains("openvpn"))
+                provider = "OpenVPN";
+            else if (combined.Contains("tailscale"))
+                provider = "Tailscale";
+            else if (combined.Contains("surfshark"))
+                provider = "Surfshark";
+            else if (combined.Contains("expressvpn"))
+                provider = "ExpressVPN";
+
+            TypeBadge = provider == "VPN" ? "VPN Shield" : $"VPN Shield ({provider})";
             TypeBadgeColor = "#10B981";
         }
         else if (DisplayName.Contains("Wi-Fi", System.StringComparison.OrdinalIgnoreCase) || Name.Contains("Wi-Fi", System.StringComparison.OrdinalIgnoreCase))

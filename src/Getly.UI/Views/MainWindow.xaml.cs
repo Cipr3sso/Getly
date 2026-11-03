@@ -309,6 +309,30 @@ public sealed partial class MainWindow : Window
             : new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(25, 0, 0, 0));
     }
 
+    private Microsoft.UI.Xaml.Media.Brush GetThemeCardBackgroundBrush()
+    {
+        bool isDark = (this.Content as FrameworkElement)?.ActualTheme == ElementTheme.Dark;
+        return isDark
+            ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(18, 255, 255, 255))
+            : new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(10, 0, 0, 0));
+    }
+
+    private static Microsoft.UI.Xaml.Media.SolidColorBrush TryParseColorBrush(string? hex, Windows.UI.Color fallback)
+    {
+        if (!string.IsNullOrWhiteSpace(hex) && hex.StartsWith("#") && hex.Length >= 7)
+        {
+            try
+            {
+                byte r = Convert.ToByte(hex.Substring(1, 2), 16);
+                byte g = Convert.ToByte(hex.Substring(3, 2), 16);
+                byte b = Convert.ToByte(hex.Substring(5, 2), 16);
+                return new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, r, g, b));
+            }
+            catch { }
+        }
+        return new Microsoft.UI.Xaml.Media.SolidColorBrush(fallback);
+    }
+
     #endregion
 
     #region Floating Mini Download Window
@@ -946,59 +970,161 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            var contentPanel = new StackPanel { Spacing = 10, Width = 440 };
+            bool isDark = (this.Content as FrameworkElement)?.ActualTheme == ElementTheme.Dark;
+            bool isTorrent = task.IsTorrent
+                || (task.Url != null && task.Url.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase))
+                || (task.Filename != null && task.Filename.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase));
 
-            void AddRow(string label, string val)
+            var contentPanel = new StackPanel { Spacing = 12, Width = isTorrent ? 540 : 480 };
+
+            // 1. Header Card (Icon + Title + Badges)
+            var headerCard = new Border
             {
-                var p = new StackPanel { Spacing = 2 };
-                p.Children.Add(new TextBlock
+                Background = GetThemeCardBackgroundBrush(),
+                BorderBrush = GetThemeBorderBrush(),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(14, 12, 14, 12)
+            };
+
+            var headerLayout = new Grid
+            {
+                ColumnDefinitions =
                 {
-                    Text = label,
+                    new ColumnDefinition { Width = GridLength.Auto },
+                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }
+                }
+            };
+
+            var iconBorder = new Border
+            {
+                Width = 42,
+                Height = 42,
+                CornerRadius = new CornerRadius(8),
+                Background = isTorrent
+                    ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(35, 139, 92, 246))
+                    : new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(35, 59, 130, 246)),
+                Margin = new Thickness(0, 0, 12, 0),
+                Child = new FontIcon
+                {
+                    Glyph = isTorrent ? "\uE753" : task.StatusIconGlyph,
+                    FontSize = 18,
+                    Foreground = isTorrent
+                        ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 168, 85, 247))
+                        : new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 59, 130, 246)),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                }
+            };
+            Grid.SetColumn(iconBorder, 0);
+            headerLayout.Children.Add(iconBorder);
+
+            var titleBadgeStack = new StackPanel { Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
+
+            var titleBlock = new TextBlock
+            {
+                Text = task.Filename,
+                FontSize = 14,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Foreground = GetThemePrimaryBrush(),
+                TextWrapping = TextWrapping.Wrap,
+                MaxLines = 2,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            };
+            ToolTipService.SetToolTip(titleBlock, task.Filename);
+            titleBadgeStack.Children.Add(titleBlock);
+
+            var badgeRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+
+            // Category Pill
+            var catBorder = new Border
+            {
+                Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(30, 139, 92, 246)),
+                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(7, 2, 7, 2),
+                Child = new TextBlock
+                {
+                    Text = task.Category,
+                    FontSize = 11,
+                    FontWeight = Microsoft.UI.Text.FontWeights.Medium,
+                    Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 168, 85, 247))
+                }
+            };
+            badgeRow.Children.Add(catBorder);
+
+            // Status Pill
+            var statusBrush = TryParseColorBrush(task.StatusColor, Windows.UI.Color.FromArgb(255, 59, 130, 246));
+            var statusBorder = new Border
+            {
+                Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(30, statusBrush.Color.R, statusBrush.Color.G, statusBrush.Color.B)),
+                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(7, 2, 7, 2),
+                Child = new TextBlock
+                {
+                    Text = task.StatusDisplay,
                     FontSize = 11,
                     FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                    Foreground = GetThemeSecondaryBrush()
-                });
-                p.Children.Add(new TextBox
+                    Foreground = statusBrush
+                }
+            };
+            badgeRow.Children.Add(statusBorder);
+
+            // Percentage badge
+            var progBorder = new Border
+            {
+                Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(25, 255, 255, 255)),
+                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(7, 2, 7, 2),
+                Child = new TextBlock
                 {
-                    Text = val,
-                    IsReadOnly = true,
-                    FontSize = 12,
-                    TextWrapping = TextWrapping.Wrap
-                });
-                contentPanel.Children.Add(p);
-            }
+                    Text = task.ProgressPercentageFormatted,
+                    FontSize = 11,
+                    FontWeight = Microsoft.UI.Text.FontWeights.Medium,
+                    Foreground = GetThemeSecondaryBrush()
+                }
+            };
+            badgeRow.Children.Add(progBorder);
 
-            AddRow("Nome File", task.Filename);
-            AddRow("URL Sorgente", task.Url);
-            AddRow("Cartella Salvataggio", task.DestinationDir);
-            AddRow("Categoria", task.Category);
-            AddRow("Stato", $"{task.StatusDisplay} ({task.ProgressPercentageFormatted})");
+            titleBadgeStack.Children.Add(badgeRow);
+            Grid.SetColumn(titleBadgeStack, 1);
+            headerLayout.Children.Add(titleBadgeStack);
+            headerCard.Child = headerLayout;
+            contentPanel.Children.Add(headerCard);
 
-            // Prominent detailed error box if task encountered an error
+            // 2. Error / Warning Alert Card (if applicable)
             if (task.IsError || string.Equals(task.Status, "Error", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrWhiteSpace(task.ErrorMessage))
             {
-                var errorPanel = new StackPanel { Spacing = 4 };
-                errorPanel.Children.Add(new TextBlock
+                var errCard = new Border
                 {
-                    Text = "Motivo dell'Errore / Eccezione:",
-                    FontSize = 11,
+                    Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(25, 239, 68, 68)),
+                    BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(120, 239, 68, 68)),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(8),
+                    Padding = new Thickness(12, 10, 12, 10)
+                };
+
+                var errStack = new StackPanel { Spacing = 6 };
+                var errHeader = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+                errHeader.Children.Add(new FontIcon { Glyph = "\uEB90", FontSize = 13, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 239, 68, 68)) });
+                errHeader.Children.Add(new TextBlock
+                {
+                    Text = "Stato / Dettagli Errore",
+                    FontSize = 12,
                     FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                     Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 239, 68, 68))
                 });
+                errStack.Children.Add(errHeader);
 
-                var errorTextBox = new TextBox
+                var errText = new TextBlock
                 {
-                    Text = !string.IsNullOrWhiteSpace(task.ErrorMessage) ? task.ErrorMessage : "Errore non specificato durante il download o probe",
-                    IsReadOnly = true,
+                    Text = !string.IsNullOrWhiteSpace(task.ErrorMessage) ? task.ErrorMessage : "Errore non specificato durante il download",
                     FontSize = 11,
                     TextWrapping = TextWrapping.Wrap,
-                    Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 252, 165, 165)),
-                    Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(40, 239, 68, 68)),
-                    BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 220, 38, 38)),
-                    BorderThickness = new Thickness(1),
-                    Padding = new Thickness(8, 6, 8, 6)
+                    Foreground = isDark
+                        ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 252, 165, 165))
+                        : new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 185, 28, 28))
                 };
-                errorPanel.Children.Add(errorTextBox);
+                errStack.Children.Add(errText);
 
                 if (task.IsCloudflareError)
                 {
@@ -1018,7 +1144,7 @@ public sealed partial class MainWindow : Window
                         BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(120, 245, 158, 11)),
                         BorderThickness = new Thickness(1),
                         CornerRadius = new CornerRadius(4),
-                        Margin = new Thickness(0, 8, 0, 0),
+                        Margin = new Thickness(0, 4, 0, 0),
                         HorizontalAlignment = HorizontalAlignment.Left
                     };
                     solveBtn.Click += (s, args) =>
@@ -1034,40 +1160,263 @@ public sealed partial class MainWindow : Window
                         }
                         catch { }
                     };
-                    errorPanel.Children.Add(solveBtn);
+                    errStack.Children.Add(solveBtn);
                 }
 
-                contentPanel.Children.Add(errorPanel);
+                errCard.Child = errStack;
+                contentPanel.Children.Add(errCard);
             }
 
-            AddRow("Progresso Dimensioni", task.DownloadedFormatted);
-            AddRow("Velocità Corrente", task.SpeedFormatted);
-            AddRow("Tempo Stimato Rimanente (ETA)", task.EtaFormatted);
+            // 3. Compact URL / Magnet Card with Copy button
+            var urlCard = new Border
+            {
+                Background = GetThemeCardBackgroundBrush(),
+                BorderBrush = GetThemeBorderBrush(),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(12, 10, 12, 10)
+            };
 
-            bool isTorrent = task.IsTorrent
-                || (task.Url != null && task.Url.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase))
-                || (task.Filename != null && task.Filename.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase));
+            var urlStack = new StackPanel { Spacing = 6 };
+            urlStack.Children.Add(new TextBlock
+            {
+                Text = isTorrent ? "Link Magnet / URL Sorgente" : "URL Sorgente",
+                FontSize = 11,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Foreground = GetThemeSecondaryBrush()
+            });
 
+            var urlRow = new Grid
+            {
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                    new ColumnDefinition { Width = GridLength.Auto }
+                }
+            };
+
+            var urlTextBox = new TextBox
+            {
+                Text = task.Url ?? string.Empty,
+                IsReadOnly = true,
+                FontSize = 11,
+                TextWrapping = TextWrapping.NoWrap,
+                Height = 32,
+                CornerRadius = new CornerRadius(4),
+                Margin = new Thickness(0, 0, 8, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            ToolTipService.SetToolTip(urlTextBox, task.Url);
+            Grid.SetColumn(urlTextBox, 0);
+            urlRow.Children.Add(urlTextBox);
+
+            var copyBtn = new Button
+            {
+                Height = 32,
+                Padding = new Thickness(10, 0, 10, 0),
+                CornerRadius = new CornerRadius(4),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            var copyStack = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+            var copyIcon = new FontIcon { Glyph = "\uE8C8", FontSize = 12 };
+            var copyText = new TextBlock { Text = "Copia", FontSize = 11 };
+            copyStack.Children.Add(copyIcon);
+            copyStack.Children.Add(copyText);
+            copyBtn.Content = copyStack;
+            copyBtn.Click += (s, e) =>
+            {
+                try
+                {
+                    var dp = new Windows.ApplicationModel.DataTransfer.DataPackage();
+                    dp.SetText(task.Url ?? string.Empty);
+                    Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dp);
+                    copyText.Text = "Copiato!";
+                    copyIcon.Glyph = "\uE73E";
+                }
+                catch { }
+            };
+            Grid.SetColumn(copyBtn, 1);
+            urlRow.Children.Add(copyBtn);
+
+            urlStack.Children.Add(urlRow);
+            urlCard.Child = urlStack;
+            contentPanel.Children.Add(urlCard);
+
+            // 4. Key Metrics Grid Card (2 columns, 2 rows)
+            var metricsCard = new Border
+            {
+                Background = GetThemeCardBackgroundBrush(),
+                BorderBrush = GetThemeBorderBrush(),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(14, 12, 14, 12)
+            };
+
+            var metricsGrid = new Grid
+            {
+                RowSpacing = 10,
+                ColumnSpacing = 20,
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }
+                },
+                RowDefinitions =
+                {
+                    new RowDefinition { Height = GridLength.Auto },
+                    new RowDefinition { Height = GridLength.Auto }
+                }
+            };
+
+            void AddMetric(string label, string val, int col, int row, string? subval = null)
+            {
+                var sp = new StackPanel { Spacing = 2 };
+                sp.Children.Add(new TextBlock
+                {
+                    Text = label,
+                    FontSize = 11,
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    Foreground = GetThemeSecondaryBrush()
+                });
+                sp.Children.Add(new TextBlock
+                {
+                    Text = val,
+                    FontSize = 13,
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    Foreground = GetThemePrimaryBrush()
+                });
+                if (!string.IsNullOrEmpty(subval))
+                {
+                    sp.Children.Add(new TextBlock
+                    {
+                        Text = subval,
+                        FontSize = 10,
+                        Foreground = GetThemeSecondaryBrush()
+                    });
+                }
+                Grid.SetColumn(sp, col);
+                Grid.SetRow(sp, row);
+                metricsGrid.Children.Add(sp);
+            }
+
+            // Col 0, Row 0: Dimensioni
+            AddMetric("Dimensioni", task.DownloadedFormatted, 0, 0);
+
+            // Col 1, Row 0: Velocità
+            string speedText = task.IsTorrent && task.UploadSpeedBps > 0
+                ? $"⬇ {task.SpeedFormatted}  ⬆ {TaskItemViewModel.FormatSpeed(task.UploadSpeedBps)}"
+                : task.SpeedFormatted;
+            AddMetric("Velocità Corrente", speedText, 1, 0);
+
+            // Col 0, Row 1: Tempo Stimato (ETA)
+            AddMetric("Tempo Rimanente (ETA)", task.EtaFormatted, 0, 1);
+
+            // Col 1, Row 1: Parti / Peer (if Torrent) or Categoria
             if (isTorrent)
             {
-                contentPanel.Width = 560;
+                string partsInfo = task.PiecesTotal > 0
+                    ? $"{task.PiecesCompleted} / {task.PiecesTotal} parti"
+                    : "In risoluzione...";
+                string peerInfo = $"({task.Seeds} Seed, {task.Peers} Peer connessi)";
+                AddMetric("Parti & Peer Torrent", partsInfo, 1, 1, peerInfo);
+            }
+            else
+            {
+                AddMetric("Tipo Connessione", "Download Multi-Segmento HTTP", 1, 1);
+            }
+
+            metricsCard.Child = metricsGrid;
+            contentPanel.Children.Add(metricsCard);
+
+            // 5. Destination Directory Card with "Apri Cartella" button
+            var destCard = new Border
+            {
+                Background = GetThemeCardBackgroundBrush(),
+                BorderBrush = GetThemeBorderBrush(),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(12, 10, 12, 10)
+            };
+
+            var destStack = new StackPanel { Spacing = 6 };
+            destStack.Children.Add(new TextBlock
+            {
+                Text = "Cartella di Salvataggio",
+                FontSize = 11,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Foreground = GetThemeSecondaryBrush()
+            });
+
+            var destRow = new Grid
+            {
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                    new ColumnDefinition { Width = GridLength.Auto }
+                }
+            };
+
+            var destText = new TextBlock
+            {
+                Text = task.DestinationDir,
+                FontSize = 11,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Foreground = GetThemeSecondaryBrush(),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            ToolTipService.SetToolTip(destText, task.DestinationDir);
+            Grid.SetColumn(destText, 0);
+            destRow.Children.Add(destText);
+
+            var openFolderBtn = new Button
+            {
+                Height = 32,
+                Padding = new Thickness(10, 0, 10, 0),
+                CornerRadius = new CornerRadius(4),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            var openFolderStack = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+            openFolderStack.Children.Add(new FontIcon { Glyph = "\uED25", FontSize = 12 });
+            openFolderStack.Children.Add(new TextBlock { Text = "Apri Cartella", FontSize = 11 });
+            openFolderBtn.Content = openFolderStack;
+            openFolderBtn.Click += (s, e) =>
+            {
+                try
+                {
+                    if (System.IO.Directory.Exists(task.DestinationDir))
+                    {
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = "explorer.exe",
+                            Arguments = $"\"{task.DestinationDir}\"",
+                            UseShellExecute = true
+                        });
+                    }
+                }
+                catch { }
+            };
+            Grid.SetColumn(openFolderBtn, 1);
+            destRow.Children.Add(openFolderBtn);
+
+            destStack.Children.Add(destRow);
+            destCard.Child = destStack;
+            contentPanel.Children.Add(destCard);
+
+            // 6. Torrent / P2P Files & Parts Table
+            if (isTorrent)
+            {
                 var files = task.Files;
                 if (files == null || files.Count == 0)
                 {
                     files = await ViewModel.GetTorrentFilesAsync(task.TaskId);
                 }
 
-                if (task.PiecesTotal > 0 || task.Seeds > 0 || task.Peers > 0)
-                {
-                    AddRow("Parti / Pezzi Torrent", $"{task.PiecesCompleted} su {task.PiecesTotal} completati ({task.Seeds} Seed, {task.Peers} Peer)");
-                }
-
                 if (files != null && files.Count > 0)
                 {
-                    var filesSection = new StackPanel { Spacing = 6, Margin = new Thickness(0, 6, 0, 0) };
+                    var filesSection = new StackPanel { Spacing = 6, Margin = new Thickness(0, 4, 0, 0) };
                     filesSection.Children.Add(new TextBlock
                     {
-                        Text = $"Parti e File del Torrent ({files.Count} elementi):",
+                        Text = $"File & Parti del Torrent ({files.Count} elementi):",
                         FontSize = 12,
                         FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                         Foreground = GetThemeSecondaryBrush()
@@ -1079,9 +1428,9 @@ public sealed partial class MainWindow : Window
                         ColumnDefinitions =
                         {
                             new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-                            new ColumnDefinition { Width = new GridLength(90, GridUnitType.Pixel) },
-                            new ColumnDefinition { Width = new GridLength(90, GridUnitType.Pixel) },
-                            new ColumnDefinition { Width = new GridLength(110, GridUnitType.Pixel) }
+                            new ColumnDefinition { Width = new GridLength(85, GridUnitType.Pixel) },
+                            new ColumnDefinition { Width = new GridLength(85, GridUnitType.Pixel) },
+                            new ColumnDefinition { Width = new GridLength(100, GridUnitType.Pixel) }
                         }
                     };
 
@@ -1110,14 +1459,14 @@ public sealed partial class MainWindow : Window
                         var rowGrid = new Grid
                         {
                             Padding = new Thickness(8, 6, 8, 6),
-                            Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(12, 255, 255, 255)),
+                            Background = GetThemeCardBackgroundBrush(),
                             CornerRadius = new CornerRadius(4),
                             ColumnDefinitions =
                             {
                                 new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-                                new ColumnDefinition { Width = new GridLength(90, GridUnitType.Pixel) },
-                                new ColumnDefinition { Width = new GridLength(90, GridUnitType.Pixel) },
-                                new ColumnDefinition { Width = new GridLength(110, GridUnitType.Pixel) }
+                                new ColumnDefinition { Width = new GridLength(85, GridUnitType.Pixel) },
+                                new ColumnDefinition { Width = new GridLength(85, GridUnitType.Pixel) },
+                                new ColumnDefinition { Width = new GridLength(100, GridUnitType.Pixel) }
                             }
                         };
 
@@ -1191,7 +1540,7 @@ public sealed partial class MainWindow : Window
                         Padding = new Thickness(4),
                         Child = new ScrollViewer
                         {
-                            MaxHeight = 220,
+                            MaxHeight = 180,
                             Content = filesStack
                         }
                     };
@@ -1200,16 +1549,39 @@ public sealed partial class MainWindow : Window
                     filesSection.Children.Add(filesContainer);
                     contentPanel.Children.Add(filesSection);
                 }
+                else
+                {
+                    // Metadata resolving indicator
+                    var resolvingCard = new Border
+                    {
+                        Background = GetThemeCardBackgroundBrush(),
+                        BorderBrush = GetThemeBorderBrush(),
+                        BorderThickness = new Thickness(1),
+                        CornerRadius = new CornerRadius(6),
+                        Padding = new Thickness(12, 10, 12, 10)
+                    };
+                    var resolvingStack = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+                    resolvingStack.Children.Add(new FontIcon { Glyph = "\uE895", FontSize = 14, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 139, 92, 246)) });
+                    resolvingStack.Children.Add(new TextBlock
+                    {
+                        Text = task.IsActive ? "Risoluzione metadati e tabella delle parti in corso dalla rete P2P..." : "Dettagli file e parti disponibili dopo l'avvio del download.",
+                        FontSize = 11,
+                        Foreground = GetThemeSecondaryBrush(),
+                        VerticalAlignment = VerticalAlignment.Center
+                    });
+                    resolvingCard.Child = resolvingStack;
+                    contentPanel.Children.Add(resolvingCard);
+                }
             }
 
             var dialog = new ContentDialog
             {
-                Title = isTorrent ? "Dettagli del Download (Torrent/P2P)" : "Dettagli del Download",
+                Title = isTorrent ? "Dettagli del Download (Torrent / P2P)" : "Dettagli del Download",
                 CloseButtonText = "Chiudi",
                 DefaultButton = ContentDialogButton.Close,
                 Content = new ScrollViewer
                 {
-                    MaxHeight = isTorrent ? 520 : 420,
+                    MaxHeight = isTorrent ? 540 : 440,
                     Content = contentPanel
                 }
             };

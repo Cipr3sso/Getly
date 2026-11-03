@@ -352,14 +352,18 @@ public partial class MainViewModel : ObservableObject
                 ApplyFilters();
             }
 
-            // Update network adapters summary and collection
+            // Update network adapters summary and collection - strictly active internet/VPN adapters only
             if (tick.Stats.Interfaces.Count > 0)
             {
-                var up = tick.Stats.Interfaces.Where(i => i.IsUp).Select(i => i.FriendlyName ?? i.Name);
-                ActiveAdaptersSummary = string.Join(" | ", up);
+                var activeList = tick.Stats.Interfaces
+                    .Where(i => !IsExcludedVirtualInterface(i))
+                    .ToList();
+
+                var enabledActive = activeList.Where(i => i.IsEnabled).Select(i => i.FriendlyName ?? i.Name).ToList();
+                ActiveAdaptersSummary = enabledActive.Count > 0 ? string.Join(" + ", enabledActive) : "Nessuna interfaccia attiva";
 
                 var incomingNames = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var ifDto in tick.Stats.Interfaces)
+                foreach (var ifDto in activeList)
                 {
                     incomingNames.Add(ifDto.Name);
                     if (_adapterIndex.TryGetValue(ifDto.Name, out var existingAdapter))
@@ -387,18 +391,54 @@ public partial class MainViewModel : ObservableObject
         });
     }
 
+    public static bool IsExcludedVirtualInterface(NetworkInterfaceDto ifDto)
+    {
+        if (ifDto == null) return true;
+        if (!ifDto.IsUp) return true;
+        if (string.IsNullOrWhiteSpace(ifDto.Ip) || ifDto.Ip == "0.0.0.0" || ifDto.Ip.StartsWith("169.254.", StringComparison.Ordinal) || ifDto.Ip.StartsWith("127.", StringComparison.Ordinal))
+            return true;
+
+        string combined = $"{ifDto.Name} {ifDto.FriendlyName}".ToLowerInvariant();
+        if (combined.Contains("vmware") ||
+            combined.Contains("vmnet") ||
+            combined.Contains("virtualbox") ||
+            combined.Contains("vbox") ||
+            combined.Contains("loopback") ||
+            combined.Contains("pseudo-interface") ||
+            combined.Contains("vethernet") ||
+            combined.Contains("default switch") ||
+            combined.Contains("bluetooth") ||
+            combined.Contains("wsl") ||
+            combined.Contains("host-only") ||
+            combined.Contains("hyper-v") ||
+            combined.Contains("wi-fi direct") ||
+            combined.Contains("hosted network"))
+        {
+            return true;
+        }
+
+        // Exclude Wi-Fi Direct virtual miniports (e.g. LAN* 5, LAN* 6)
+        if (ifDto.Name.Contains("*") || (ifDto.FriendlyName != null && ifDto.FriendlyName.Contains("*")))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
     private void UpdateSystemStats(SystemStatsDto stats)
     {
         RunOnUI(() =>
         {
             VpnShieldActive = stats.VpnShieldEnabled;
             VpnShieldStatusText = stats.VpnShieldEnabled ? "VPN Shield Attivo (Kill-Switch)" : "VPN Shield Disattivo";
-            if (stats.ActiveAdapters.Count > 0)
+            var validAdapters = stats.ActiveAdapters.Where(a => !IsExcludedVirtualInterface(a)).ToList();
+            if (validAdapters.Count > 0)
             {
-                var activeNames = stats.ActiveAdapters.Select(a => a.FriendlyName ?? a.Name);
+                var activeNames = validAdapters.Select(a => a.FriendlyName ?? a.Name);
                 ActiveAdaptersSummary = string.Join(" + ", activeNames);
 
-                foreach (var ifDto in stats.ActiveAdapters)
+                foreach (var ifDto in validAdapters)
                 {
                     if (_adapterIndex.TryGetValue(ifDto.Name, out var existingAdapter))
                     {

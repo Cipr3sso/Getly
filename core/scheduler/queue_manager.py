@@ -198,7 +198,12 @@ class QueueManager:
                             created_time = time.time()
 
                         if file_size > 0:
-                            cat = detect_category(entry.name)
+                            if entry.parent.name.lower() == "torrents" or entry.suffix.lower() == ".torrent":
+                                cat = CATEGORY_TORRENTS
+                                t_type = "TORRENT"
+                            else:
+                                cat = detect_category(entry.name)
+                                t_type = "HTTP"
                             imported_task = DownloadTask(
                                 url=f"file://{entry.name}",
                                 destination_dir=entry.parent,
@@ -207,6 +212,7 @@ class QueueManager:
                                 total_size=file_size,
                                 downloaded_bytes=file_size,
                                 category=cat,
+                                task_type=t_type,
                                 created_at=created_time,
                             )
                             self.state_store.save_task(imported_task)
@@ -238,6 +244,18 @@ class QueueManager:
             try:
                 target_path = Path(task.destination_dir) / task.filename
                 file_exists = target_path.exists()
+                if not file_exists and task.destination_dir:
+                    alt_torrents = Path(task.destination_dir) / "Torrents" / task.filename
+                    if alt_torrents.exists():
+                        target_path = alt_torrents
+                        file_exists = True
+                        task.destination_dir = str(alt_torrents.parent)
+                    elif hasattr(self, "default_download_dir"):
+                        def_torrents = self.default_download_dir / "Torrents" / task.filename
+                        if def_torrents.exists():
+                            target_path = def_torrents
+                            file_exists = True
+                            task.destination_dir = str(def_torrents.parent)
 
                 if task.status == DownloadStatus.COMPLETED and not file_exists:
                     logger.info("File %s moved or deleted on disk. Moving task %s to DELETED.", target_path, task.task_id)

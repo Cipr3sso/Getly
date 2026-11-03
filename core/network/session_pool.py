@@ -68,9 +68,10 @@ class MultiInterfaceSessionPool:
         """
         Dynamically rescans system network interfaces to detect newly connected adapters (e.g. VPN).
         Updates internal adapters list while preserving disabled adapters state and session bindings.
+        Only active, usable internet and connected VPN adapters are included in the pool.
         """
         try:
-            detected = InterfaceDetector.detect_all_adapters()
+            detected = InterfaceDetector.get_active_internet_adapters()
             if detected:
                 old_by_name = {a.name: a for a in self._adapters}
                 new_adapters: List[NetworkAdapter] = []

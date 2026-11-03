@@ -113,3 +113,15 @@ async def test_session_pool_lifecycle():
     await pool.close()
     assert not pool.is_initialized
     assert session.closed
+
+
+@pytest.mark.asyncio
+async def test_session_pool_refresh_adapters_excludes_virtual():
+    pool = MultiInterfaceSessionPool()
+    refreshed = pool.refresh_adapters()
+    for ad in refreshed:
+        assert not ad.is_loopback
+        assert not ad.ip.startswith("169.254.")
+        assert not ad.ip.startswith("127.")
+        assert ad.is_up
+        assert not InterfaceDetector._is_excluded_adapter(ad)

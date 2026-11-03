@@ -251,10 +251,21 @@ class CNLServer:
 
         self._runner = web.AppRunner(self._app)
         await self._runner.setup()
-        self._site = web.TCPSite(self._runner, self.host, self.port)
-        await self._site.start()
-        self._is_running = True
-        logger.info("CNL2 Server listening on http://%s:%d", self.host, self.port)
+
+        # Attempt to bind to requested port, with graceful fallback to subsequent ports if already in use
+        base_port = self.port
+        for p in range(base_port, base_port + 10):
+            try:
+                self._site = web.TCPSite(self._runner, self.host, p)
+                await self._site.start()
+                self.port = p
+                self._is_running = True
+                logger.info("CNL2 Server listening on http://%s:%d", self.host, self.port)
+                return
+            except OSError as exc:
+                if p == base_port + 9:
+                    logger.warning("CNL2 HTTP Server could not bind to ports %d-%d: %s. Continuing with IPC pipe server only.", base_port, base_port + 9, exc)
+                    self._site = None
 
     async def stop(self) -> None:
         """Stops the server gracefully."""

@@ -23,11 +23,18 @@ IF_OPER_STATUS_UP = 1
 EXCLUDED_NAME_PATTERNS = [
     "vethernet",
     "vmware",
+    "vmnet",
     "virtualbox",
+    "vbox",
     "loopback",
+    "pseudo-interface",
     "bluetooth",
     "default switch",
     "wsl",
+    "host-only",
+    "hyper-v",
+    "wi-fi direct",
+    "hosted network",
 ]
 
 # Patterns identifying VPN / Tunnel adapters
@@ -94,6 +101,8 @@ class InterfaceDetector:
         combined = f"{adapter.name or ''} {adapter.friendly_name or ''} {adapter.description or ''}".lower()
         if cls.is_vpn_adapter(adapter.name, adapter.friendly_name, adapter.description, adapter.ip):
             return False
+        if "*" in (adapter.name or "") or "*" in (adapter.friendly_name or ""):
+            return True
         return any(pattern in combined for pattern in EXCLUDED_NAME_PATTERNS)
 
     @classmethod

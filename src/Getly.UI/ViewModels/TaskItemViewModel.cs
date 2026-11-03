@@ -291,7 +291,9 @@ public partial class TaskItemViewModel : ObservableObject
         return $"{FormatBytes(downloaded)} / {FormatBytes(total)}";
     }
 
-    private static string FormatSpeed(double bytesPerSec)
+    public string UploadSpeedFormatted => FormatSpeed(UploadSpeedBps);
+
+    public static string FormatSpeed(double bytesPerSec)
     {
         if (bytesPerSec <= 0) return "0 B/s";
         return $"{FormatBytes((long)bytesPerSec)}/s";

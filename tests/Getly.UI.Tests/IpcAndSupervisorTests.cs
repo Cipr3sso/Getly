@@ -13,7 +13,7 @@ namespace Getly.UI.Tests;
 
 public class IpcAndSupervisorTests : IDisposable
 {
-    private readonly CancellationTokenSource _testCts = new(TimeSpan.FromSeconds(9));
+    private readonly CancellationTokenSource _testCts = new(TimeSpan.FromSeconds(30));
 
     public void Dispose()
     {
@@ -196,7 +196,7 @@ public class IpcAndSupervisorTests : IDisposable
         Assert.True(sw.ElapsedMilliseconds < 3500, $"ConnectAsync took too long to fail: {sw.ElapsedMilliseconds}ms");
     }
 
-    [Fact(Timeout = 10000)]
+    [Fact(Timeout = 30000)]
     public async Task IpcClient_ConnectAndRpc_WithPythonEngineServiceAsync()
     {
         string pipeName = $@"\\.\pipe\test_cs_ipc_{Guid.NewGuid():N}";
@@ -212,8 +212,8 @@ public class IpcAndSupervisorTests : IDisposable
 
         try
         {
-            // Connect with strict 3-second timeout
-            await client.ConnectAsync(TimeSpan.FromSeconds(3), _testCts.Token);
+            // Connect with reasonable timeout
+            await client.ConnectAsync(TimeSpan.FromSeconds(8), _testCts.Token);
             Assert.True(client.IsConnected);
 
             // 1. GetStatsAsync

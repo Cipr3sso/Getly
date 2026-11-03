@@ -531,7 +531,7 @@
                                 <Border Height="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" />
 
                                 <ToggleSwitch
-                                    Header="Protezione automatica NordLynx / Killswitch"
+                                    Header="Protezione automatica VPN Shield (Kill-Switch per VPN)"
                                     IsOn="{x:Bind ViewModel.VpnShieldActive, Mode=TwoWay}" />
                             </StackPanel>
                         </Border>
