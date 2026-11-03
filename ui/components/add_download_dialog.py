@@ -188,16 +188,16 @@ class AddDownloadDialog(ft.AlertDialog):
         self.resolve_status_text = ft.Text("", size=11, color=TEXT_SECONDARY, visible=False)
 
         self.resolve_btn = ft.OutlinedButton(
-            icon=ft.Icons.EXTENSION_ROUNDED,
-            content="Risolvi con Estensione",
-            on_click=self._handle_resolve_with_extension,
+            icon=ft.Icons.VIDEO_SETTINGS_ROUNDED,
+            content="Estrai Video / Stream",
+            on_click=self._handle_resolve_media,
             style=ft.ButtonStyle(
                 color=ACCENT_LIGHT,
                 bgcolor=SURFACE_CARD,
                 side=ft.BorderSide(1, "rgba(0, 120, 212, 0.40)"),
                 shape=ft.RoundedRectangleBorder(radius=6),
             ),
-            tooltip="Risolvi link o flussi video protetti tramite sandbox Gopeed",
+            tooltip="Estrai titolo, durata e risoluzione da YouTube o HLS/m3u8 con yt-dlp",
         )
 
         self.multi_file_column = ft.Column(
@@ -328,6 +328,14 @@ class AddDownloadDialog(ft.AlertDialog):
 
     def _on_url_changed(self, e: ft.ControlEvent) -> None:
         url = self.url_field.value.strip() if self.url_field.value else ""
+        if url:
+            from core.engine.media_extractor import is_media_stream_url
+            if is_media_stream_url(url):
+                self._update_category_and_folder("Video", e.page)
+                if not self.filename_field.value:
+                    self._handle_resolve_media(e)
+                return
+
         if url and not self.filename_field.value:
             detected_fn = url.split("/")[-1].split("?")[0] if "/" in url else ""
             if detected_fn and "." in detected_fn:
@@ -373,10 +381,10 @@ class AddDownloadDialog(ft.AlertDialog):
         if e.page:
             e.page.run_task(_browse)
 
-    def _handle_resolve_with_extension(self, e: ft.ControlEvent) -> None:
+    def _handle_resolve_media(self, e: ft.ControlEvent) -> None:
         url = self.url_field.value.strip() if self.url_field.value else ""
         if not url:
-            self.error_text.value = "Inserisci un URL da risolvere."
+            self.error_text.value = "Inserisci un URL da analizzare."
             self.error_text.visible = True
             if e.page:
                 e.page.update()
@@ -384,7 +392,7 @@ class AddDownloadDialog(ft.AlertDialog):
 
         async def _resolve():
             self.resolve_spinner.visible = True
-            self.resolve_status_text.value = "Risoluzione link tramite estensioni Gopeed in corso..."
+            self.resolve_status_text.value = "Analisi stream multimediale in corso..."
             self.resolve_status_text.color = TEXT_SECONDARY
             self.resolve_status_text.visible = True
             self.error_text.visible = False
@@ -392,67 +400,41 @@ class AddDownloadDialog(ft.AlertDialog):
                 e.page.update()
 
             try:
-                res: Optional[ResolvedResource] = await asyncio.to_thread(
-                    self.coordinator.extension_manager.resolve_url,
+                from core.engine.media_extractor import MediaExtractor
+                source_ip = None
+                if getattr(self.coordinator.session_pool, "primary_adapter", None):
+                    source_ip = self.coordinator.session_pool.primary_adapter.ip
+
+                res = await asyncio.to_thread(
+                    MediaExtractor.extract_info,
                     url,
+                    source_address=source_ip,
                 )
                 self.resolve_spinner.visible = False
-                if res and (res.url or res.files):
-                    self.extra_headers.update(res.headers)
-                    if res.files and len(res.files) > 1:
-                        # Multi-file presentation
-                        self.resolved_files = res.files
-                        self.selected_file_indices = set(range(len(res.files)))
-                        self.multi_file_column.controls.clear()
-
-                        for idx, rf in enumerate(res.files):
-                            size_str = f" ({format_bytes(rf.size)})" if rf.size else ""
-                            fn_display = rf.name or f"File #{idx + 1}"
-                            cb = ft.Checkbox(
-                                label=f"{fn_display}{size_str}",
-                                value=True,
-                                active_color=ACCENT_BLUE,
-                                on_change=lambda ev, i=idx: self._on_file_check_toggle(i, ev.control.value),
-                            )
-                            self.multi_file_column.controls.append(cb)
-
-                        self.multi_file_container.visible = True
-                        self.multi_file_column.visible = True
-                        self.resolve_status_text.value = f"✅ Trovati {len(res.files)} file/flussi scaricabili!"
-                        self.resolve_status_text.color = "#10B981"
-                        if res.filename:
-                            self.filename_field.value = res.filename
-                    else:
-                        # Single resolved file
-                        resolved_url = res.url
-                        resolved_name = res.filename
-                        if res.files and len(res.files) == 1:
-                            resolved_url = res.files[0].url or resolved_url
-                            resolved_name = res.files[0].name or resolved_name
-                            if res.files[0].headers:
-                                self.extra_headers.update(res.files[0].headers)
-
-                        self.url_field.value = resolved_url
-                        if resolved_name:
-                            self.filename_field.value = resolved_name
-                            new_cat = detect_category(resolved_name)
-                            self._update_category_and_folder(new_cat, e.page)
-
-                        self.multi_file_container.visible = False
-                        self.resolve_status_text.value = f"✅ Link diretto risolto con successo! ({resolved_name or 'file'})"
-                        self.resolve_status_text.color = "#10B981"
+                if res and res.get("title"):
+                    title = res["title"]
+                    clean_fn = res.get("filename") or f"{title}.mp4"
+                    self.filename_field.value = clean_fn
+                    self.current_category = "Video"
+                    self.category_dropdown.value = "Video"
+                    base_dir = self.coordinator.queue_manager.default_download_dir
+                    self.dir_field.value = str(get_category_subfolder(base_dir, "Video"))
+                    dur = res.get("duration_formatted", "")
+                    self.resolve_status_text.value = f"✓ Rilevato: {title} ({dur})" if dur and dur != "--:--" else f"✓ Rilevato: {title}"
+                    self.resolve_status_text.color = "#10B981"
                 else:
-                    self.resolve_status_text.value = "Nessuna estensione compatibile o link non risolvibile."
+                    self.resolve_status_text.value = "Nessun flusso video o HLS rilevato per questo link."
                     self.resolve_status_text.color = "#F59E0B"
             except Exception as exc:
                 self.resolve_spinner.visible = False
-                self.resolve_status_text.value = f"Errore risoluzione: {exc}"
+                self.resolve_status_text.value = f"Errore estrazione: {exc}"
                 self.resolve_status_text.color = "#EF4444"
 
             if e.page:
                 e.page.update()
 
         if e.page:
+            e.page.run_task(_resolve)
             e.page.run_task(_resolve)
 
     def _on_file_check_toggle(self, idx: int, checked: bool) -> None:

@@ -9,10 +9,11 @@ import urllib.parse
 from core.network.session_pool import MultiInterfaceSessionPool
 from core.cnl.models import CNLDecryptedPackage
 from core.engine.downloader import DownloadEngine
+from core.engine.media_extractor import is_media_stream_url, MediaExtractor
+from core.engine.stream_downloader import StreamDownloadEngine
 from .task import DownloadTask, DownloadStatus
 from .state_store import StateStore
 from .categories import detect_category, get_category_subfolder, CATEGORY_TORRENTS, CATEGORY_ALIASES
-from core.extensions.manager import ExtensionManager
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ class QueueManager:
         max_active_tasks: int = 3,
         workers_per_interface: int = 2,
         on_task_added: Optional[Callable[[DownloadTask], Any]] = None,
-        extension_manager: Optional[ExtensionManager] = None,
+        extension_manager: Optional[Any] = None,
     ):
         self.session_pool = session_pool
         self.state_store = state_store
@@ -351,7 +352,7 @@ class QueueManager:
 
         clean_url = url.strip()
 
-        # Check if an extension or streaming provider can resolve this URL into direct streams/files
+        # Check if URL is a media stream (YouTube, TikTok, socials, m3u8 playlist)
         source_ip = None
         if hasattr(self, "session_pool") and self.session_pool:
             if getattr(self.session_pool, "primary_adapter", None):
@@ -359,57 +360,21 @@ class QueueManager:
             elif getattr(self.session_pool, "all_adapters", None) and len(self.session_pool.all_adapters) > 0:
                 source_ip = self.session_pool.all_adapters[0].ip
 
-        resolved = None
-        if self.extension_manager:
-            try:
-                resolved = self.extension_manager.resolve_url(clean_url, source_address=source_ip)
-            except TypeError:
-                resolved = self.extension_manager.resolve_url(clean_url)
-            except Exception as exc:
-                logger.warning("Error resolving URL through extensions: %s", exc)
-
-        if not resolved:
-            try:
-                from core.extensions.engine import is_video_streaming_url, resolve_with_ytdlp
-                if is_video_streaming_url(clean_url):
-                    resolved = resolve_with_ytdlp(clean_url, source_address=source_ip)
-            except Exception as exc:
-                logger.debug("Streaming bridge resolution error: %s", exc)
+        if is_media_stream_url(clean_url):
+            task_type = "STREAM"
+            if not category:
+                category = "Video"
+            if not clean_filename:
+                try:
+                    meta = MediaExtractor.extract_info(clean_url, source_address=source_ip, timeout=5)
+                    if meta and meta.get("filename"):
+                        clean_filename = meta["filename"]
+                        logger.info("Extracted media stream title: '%s'", clean_filename)
+                except Exception as exc:
+                    logger.debug("MediaExtractor pre-add info extraction failed: %s", exc)
 
         task_headers = dict(headers) if headers else None
         parsed_total_size = total_size or 0
-        if resolved and (resolved.url or resolved.files):
-            direct_url = resolved.url or (resolved.files[0].url if resolved.files else "")
-            direct_filename = resolved.filename or (resolved.files[0].name if resolved.files else "")
-            if direct_url:
-                logger.info(
-                    "Stream resolved '%s' -> '%s' (filename: %s)",
-                    clean_url,
-                    direct_url,
-                    direct_filename,
-                )
-                clean_url = direct_url
-                url = direct_url
-                if not clean_filename and direct_filename:
-                    clean_filename = direct_filename
-
-                if resolved.headers:
-                    task_headers = {**(task_headers or {}), **dict(resolved.headers)}
-                elif resolved.files and resolved.files[0].headers:
-                    task_headers = {**(task_headers or {}), **dict(resolved.files[0].headers)}
-
-                if not parsed_total_size and resolved.files and resolved.files[0].size:
-                    parsed_total_size = resolved.files[0].size
-
-                if task_headers:
-                    for h_k, h_v in task_headers.items():
-                        lk = h_k.lower()
-                        if lk == "cookie" and not cookies:
-                            cookies = h_v
-                        elif lk == "user-agent" and not user_agent:
-                            user_agent = h_v
-                        elif lk == "referer" and not referer:
-                            referer = h_v
 
         if not parsed_total_size and "clen=" in clean_url:
             try:
@@ -685,46 +650,9 @@ class QueueManager:
 
         clean_url = new_url.strip()
 
-        # Check if an extension or streaming bridge can resolve this new URL
-        source_ip = None
-        if hasattr(self, "session_pool") and self.session_pool:
-            if getattr(self.session_pool, "primary_adapter", None):
-                source_ip = self.session_pool.primary_adapter.ip
-            elif getattr(self.session_pool, "all_adapters", None) and len(self.session_pool.all_adapters) > 0:
-                source_ip = self.session_pool.all_adapters[0].ip
-
-        resolved = None
-        if self.extension_manager:
-            try:
-                resolved = self.extension_manager.resolve_url(clean_url, source_address=source_ip)
-            except Exception as exc:
-                logger.debug("Error resolving updated URL through extensions: %s", exc)
-
-        if not resolved:
-            try:
-                from core.extensions.engine import is_video_streaming_url, resolve_with_ytdlp
-                if is_video_streaming_url(clean_url):
-                    resolved = resolve_with_ytdlp(clean_url, source_address=source_ip)
-            except Exception as exc:
-                logger.debug("Streaming bridge resolution error: %s", exc)
-
-        if resolved and (resolved.url or resolved.files):
-            direct_url = resolved.url or (resolved.files[0].url if resolved.files else "")
-            if direct_url:
-                clean_url = direct_url
-                if resolved.headers:
-                    task.headers = dict(resolved.headers)
-                elif resolved.files and resolved.files[0].headers:
-                    task.headers = dict(resolved.files[0].headers)
-                if task.headers:
-                    for h_k, h_v in task.headers.items():
-                        lk = h_k.lower()
-                        if lk == "cookie":
-                            task.cookies = h_v
-                        elif lk == "user-agent":
-                            task.user_agent = h_v
-                        elif lk == "referer":
-                            task.referer = h_v
+        if is_media_stream_url(clean_url):
+            task.task_type = "STREAM"
+            task.category = "Video"
 
         # Cancel active engine if running
         active_engine = self._active_engines.get(task_id)
@@ -858,6 +786,16 @@ class QueueManager:
                     session_manager=session_mgr,
                     on_progress=on_progress,
                 )
+            elif task.task_type in ("STREAM", "M3U8") or is_media_stream_url(task.url):
+                source_ip = None
+                if getattr(self.session_pool, "primary_adapter", None):
+                    source_ip = self.session_pool.primary_adapter.ip
+                engine = StreamDownloadEngine(
+                    task=task,
+                    destination_dir=task.destination_dir,
+                    on_progress=on_progress,
+                    source_address=source_ip,
+                )
             else:
                 engine = DownloadEngine(
                     url=task.url,
@@ -887,6 +825,13 @@ class QueueManager:
                     if hasattr(engine, "storage") and getattr(engine.storage, "filepath", None):
                         try:
                             fp = engine.storage.filepath
+                            if fp.exists():
+                                actual_downloaded = max(actual_downloaded, fp.stat().st_size)
+                        except Exception:
+                            pass
+                    elif getattr(engine, "target_filepath", None):
+                        try:
+                            fp = engine.target_filepath
                             if fp.exists():
                                 actual_downloaded = max(actual_downloaded, fp.stat().st_size)
                         except Exception:

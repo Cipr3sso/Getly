@@ -14,7 +14,6 @@ from core.system.autostart import is_autostart_enabled, set_autostart
 from ui.coordinator import UICoordinator, format_speed, format_bytes
 from ui.views.dashboard_view import DashboardView
 from ui.views.monitor_view import MonitorView
-from ui.views.extensions_view import ExtensionsView
 from ui.components.add_download_dialog import AddDownloadDialog
 from ui.components.clipboard_dialog import ClipboardDownloadDialog
 from ui.components.site_grabber_dialog import SiteGrabberDialog
@@ -79,11 +78,10 @@ class ResilientApp:
         )
         self.clipboard_watcher: Optional[ClipboardWatcher] = None
 
-        self.current_tab_index = 0  # 0: Dashboard, 1: Monitor, 2: Extensions
+        self.current_tab_index = 0  # 0: Dashboard, 1: Monitor
         self.sidebar: Optional[CollapsibleSidebar] = None
         self.dashboard_view: Optional[DashboardView] = None
         self.monitor_view: Optional[MonitorView] = None
-        self.extensions_view: Optional[ExtensionsView] = None
         self.body_container: Optional[ft.Container] = None
         self.header_title_text: Optional[ft.Text] = None
         self.net_badge_container: Optional[ft.Container] = None
@@ -269,10 +267,6 @@ class ResilientApp:
             on_add_requested=self._open_add_dialog,
         )
         self.monitor_view = MonitorView(coordinator=self.coordinator)
-        self.extensions_view = ExtensionsView(
-            coordinator=self.coordinator,
-            on_extension_updated=self._update_sidebar_counts,
-        )
 
         self.body_container = ft.Container(
             expand=True,
@@ -590,13 +584,6 @@ class ResilientApp:
         elif key in ("TOOL_GRABBER", "NAV_GRABBER"):
             self._open_site_grabber_dialog()
             return
-        elif key in ("TOOL_EXTENSIONS", "NAV_EXTENSIONS"):
-            self.current_tab_index = 2
-            if self.body_container and self.extensions_view:
-                self.body_container.content = self.extensions_view
-                self.extensions_view.refresh_extensions()
-            if self.header_title_text:
-                self.header_title_text.value = "Estensioni Gopeed"
         else:
             self.current_tab_index = 0
             if self.body_container and self.dashboard_view:
@@ -640,7 +627,6 @@ class ResilientApp:
             self.sidebar.update_counts(
                 status_counts,
                 category_counts,
-                extensions_count=self.coordinator.active_extensions_count,
             )
 
     def _toggle_grabber(self, e: Optional[ft.ControlEvent] = None) -> None:

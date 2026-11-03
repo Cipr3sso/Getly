@@ -12,7 +12,6 @@ from core.network.session_pool import MultiInterfaceSessionPool
 from core.scheduler.queue_manager import QueueManager
 from core.scheduler.task import DownloadTask, DownloadStatus
 from core.cnl.models import CNLDecryptedPackage
-from core.extensions.manager import ExtensionManager
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +59,7 @@ class UICoordinator:
         queue_manager: QueueManager,
         session_pool: MultiInterfaceSessionPool,
         tick_interval_sec: float = 0.5,
-        extension_manager: Optional[ExtensionManager] = None,
+        extension_manager: Optional[Any] = None,
     ):
         self.queue_manager = queue_manager
         self.session_pool = session_pool
@@ -68,14 +67,7 @@ class UICoordinator:
         self.ask_before_download: bool = True
         self.prompt_download_handler: Optional[Callable[[dict], Any]] = None
         self.focus_handler: Optional[Callable[[], Any]] = None
-
-        self.extension_manager = (
-            extension_manager
-            or getattr(queue_manager, "extension_manager", None)
-            or ExtensionManager()
-        )
-        if hasattr(self.queue_manager, "extension_manager") and not self.queue_manager.extension_manager:
-            self.queue_manager.extension_manager = self.extension_manager
+        self.extension_manager = None
 
         # Computed live metrics
         self.interface_speeds: Dict[str, float] = {}  # adapter_name -> bytes/sec
@@ -473,44 +465,7 @@ class UICoordinator:
 
     @property
     def active_extensions_count(self) -> int:
-        """Returns the count of currently enabled Gopeed extensions."""
-        if not self.extension_manager:
-            return 0
-        return sum(1 for e in self.extension_manager.list_extensions() if e.enabled)
+        return 0
 
     def get_extensions(self) -> list:
-        """Returns the list of all installed extensions."""
-        return self.extension_manager.list_extensions() if self.extension_manager else []
-
-    def enable_extension(self, ext_id: str) -> bool:
-        res = self.extension_manager.enable_extension(ext_id) if self.extension_manager else False
-        self.notify_listeners()
-        return res
-
-    def disable_extension(self, ext_id: str) -> bool:
-        res = self.extension_manager.disable_extension(ext_id) if self.extension_manager else False
-        self.notify_listeners()
-        return res
-
-    def delete_extension(self, ext_id: str) -> bool:
-        res = self.extension_manager.delete_extension(ext_id) if self.extension_manager else False
-        self.notify_listeners()
-        return res
-
-    def install_extension_from_url(self, url: str):
-        if not self.extension_manager:
-            raise RuntimeError("Extension manager not initialized")
-        res = self.extension_manager.install_from_url(url)
-        self.notify_listeners()
-        return res
-
-    def install_extension_from_file(self, file_path: Path):
-        if not self.extension_manager:
-            raise RuntimeError("Extension manager not initialized")
-        p = Path(file_path)
-        if p.suffix.lower() == ".zip":
-            res = self.extension_manager.install_from_zip(p)
-        else:
-            res = self.extension_manager.install_from_js(p)
-        self.notify_listeners()
-        return res
+        return []

@@ -12,7 +12,6 @@ from core.cnl.server import CNLServer
 from core.cnl.models import CNLDecryptedPackage
 from core.scheduler.state_store import StateStore
 from core.scheduler.queue_manager import QueueManager
-from core.extensions.manager import ExtensionManager
 from core.system.paths import get_database_path, is_frozen
 from ui.coordinator import UICoordinator
 from ui.app import run_gui
@@ -64,12 +63,10 @@ async def run_daemon(download_dir: Path, port: int, url_to_download: str = None)
 
     # 2. Initialize State Store and Queue Manager
     state_store = StateStore(db_path)
-    extension_manager = ExtensionManager()
     queue_manager = QueueManager(
         session_pool=session_pool,
         state_store=state_store,
         default_download_dir=download_dir,
-        extension_manager=extension_manager,
     )
     await queue_manager.start()
 

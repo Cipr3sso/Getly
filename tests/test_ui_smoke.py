@@ -365,39 +365,26 @@ async def test_collapsible_sidebar_navigation_and_filters(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_extensions_view_smoke(tmp_path: Path):
-    from ui.views.extensions_view import ExtensionsView, InstallExtensionDialog
-    from core.extensions.manager import ExtensionManager
-
-    ext_dir = tmp_path / "extensions"
-    ext_mgr = ExtensionManager(storage_dir=ext_dir)
-    ext_mgr.install_from_js(
-        js_source="gopeed.events.onResolve(async (ctx) => {});",
-        name="test-plugin",
-        match_urls=["*://test.com/*"],
-    )
+async def test_add_download_dialog_media_extraction(tmp_path: Path):
+    from ui.components.add_download_dialog import AddDownloadDialog
+    from core.network.models import NetworkAdapter
 
     ad1 = NetworkAdapter(name="Wi-Fi", ip="192.168.1.89", is_primary=True, is_up=True)
     pool = MultiInterfaceSessionPool(adapters=[ad1])
-    store = StateStore(tmp_path / "ext_state.db")
-    qm = QueueManager(session_pool=pool, state_store=store, default_download_dir=tmp_path, extension_manager=ext_mgr)
-    coord = UICoordinator(queue_manager=qm, session_pool=pool, extension_manager=ext_mgr)
+    store = StateStore(tmp_path / "media_state.db")
+    qm = QueueManager(session_pool=pool, state_store=store, default_download_dir=tmp_path)
+    coord = UICoordinator(queue_manager=qm, session_pool=pool)
 
-    view = ExtensionsView(coordinator=coord)
-    assert view is not None
-    assert len(view.list_view.controls) == 1
-
-    dlg = InstallExtensionDialog(coordinator=coord)
+    dlg = AddDownloadDialog(coordinator=coord)
     assert dlg is not None
-    assert dlg.url_field is not None
+    assert dlg.resolve_btn is not None
 
-    view._toggle_extension("test-plugin", False)
-    assert ext_mgr.get_extension("test-plugin").enabled is False
-    view._toggle_extension("test-plugin", True)
-    assert ext_mgr.get_extension("test-plugin").enabled is True
-
-    view._delete_extension("test-plugin")
-    assert len(view.list_view.controls) == 1
+    # Test stream detection and category change
+    dlg.url_field.value = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    class DummyEvent:
+        page = None
+    dlg._on_url_changed(DummyEvent())
+    assert dlg.current_category == "Video"
 
     await pool.close()
 

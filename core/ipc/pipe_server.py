@@ -16,6 +16,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 import psutil
 
 from core.engine.speed_limiter import SpeedLimiter
+from core.engine.media_extractor import MediaExtractor
 from core.network.session_pool import MultiInterfaceSessionPool
 from core.scheduler.queue_manager import QueueManager
 from core.scheduler.task import DownloadTask, DownloadStatus
@@ -95,6 +96,7 @@ class NamedPipeServer:
             "system.refresh_network": self._rpc_system_refresh_network,
             "system.set_settings": self._rpc_system_set_settings,
             "system.health_check": self._rpc_system_health_check,
+            "media.extract_info": self._rpc_media_extract_info,
         }
 
     @property
@@ -479,6 +481,23 @@ class NamedPipeServer:
             "memory": memory_stats,
             "task_counts": counts,
         }
+
+    async def _rpc_media_extract_info(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        url = params.get("url")
+        if not url:
+            raise ValueError("Missing 'url' parameter")
+        timeout = int(params.get("timeout", 20))
+        source_address = params.get("source_address")
+
+        info = await asyncio.to_thread(
+            MediaExtractor.extract_info,
+            url=url,
+            source_address=source_address,
+            timeout=timeout,
+        )
+        if not info:
+            return {"success": False, "error": "Impossibile estrarre i metadati dal flusso multimediale", "info": None}
+        return {"success": True, "error": None, "info": info}
 
 
 # =============================================================================

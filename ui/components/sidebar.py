@@ -131,15 +131,13 @@ class CollapsibleSidebar(ft.Container):
         self.tool_items: List[SidebarItemData] = [
             SidebarItemData("TOOL_MONITOR", "Net-Merge Monitor", ft.Icons.NETWORK_CHECK_ROUNDED, is_tool=True),
             SidebarItemData("TOOL_GRABBER", "Site Grabber", ft.Icons.PUBLIC_ROUNDED, is_tool=True),
-            SidebarItemData("TOOL_EXTENSIONS", "Estensioni", ft.Icons.EXTENSION_ROUNDED, is_tool=True),
         ]
 
-        # Top 4 Macro Navigation Items
+        # Top Macro Navigation Items
         self.macro_items: List[SidebarItemData] = [
             SidebarItemData("NAV_DOWNLOADS", "Download", ft.Icons.DOWNLOAD_ROUNDED, status="ALL"),
             SidebarItemData("NAV_GRABBER", "Site Grabber", ft.Icons.PUBLIC_ROUNDED, is_tool=True),
             SidebarItemData("NAV_MONITOR", "Net-Merge", ft.Icons.NETWORK_CHECK_ROUNDED, is_tool=True),
-            SidebarItemData("NAV_EXTENSIONS", "Estensioni", ft.Icons.EXTENSION_ROUNDED, is_tool=True),
         ]
 
         self.top_items_column = ft.Column(
@@ -196,8 +194,6 @@ class CollapsibleSidebar(ft.Container):
             if item.key == "NAV_DOWNLOADS":
                 # Badge counts active/in-progress downloads only (hidden when 0 in-progress)
                 count = self.status_counts.get("ACTIVE", 0)
-            elif item.key == "NAV_EXTENSIONS":
-                count = self.extensions_count
 
             ctrl = self._build_rail_item(item, count, is_ext=is_ext)
             self.top_items_column.controls.append(ctrl)
@@ -221,8 +217,6 @@ class CollapsibleSidebar(ft.Container):
         if item_key in ("NAV_MONITOR", "TOOL_MONITOR") and self.active_key in ("NAV_MONITOR", "TOOL_MONITOR"):
             return True
         if item_key in ("NAV_GRABBER", "TOOL_GRABBER") and self.active_key in ("NAV_GRABBER", "TOOL_GRABBER"):
-            return True
-        if item_key in ("NAV_EXTENSIONS", "TOOL_EXTENSIONS") and self.active_key in ("NAV_EXTENSIONS", "TOOL_EXTENSIONS"):
             return True
         return False
 
@@ -386,9 +380,6 @@ class CollapsibleSidebar(ft.Container):
             return
         elif key in ("NAV_GRABBER", "TOOL_GRABBER"):
             self.on_navigate("TOOL_GRABBER", None, None)
-            return
-        elif key in ("NAV_EXTENSIONS", "TOOL_EXTENSIONS"):
-            self.on_navigate("TOOL_EXTENSIONS", None, None)
             return
 
         all_items = self.macro_items + self.status_items + self.category_items + self.tool_items

@@ -22,7 +22,6 @@ from config.settings import settings
 from core.api.local_server import LocalHttpServer
 from core.cnl.models import CNLDecryptedPackage
 from core.cnl.server import CNLServer
-from core.extensions.manager import ExtensionManager
 from core.ipc.pipe_server import NamedPipeServer, DEFAULT_PIPE_NAME, connect_pipe_client
 from core.ipc.telemetry import TelemetryDispatcher
 from core.network.interface_detector import InterfaceDetector
@@ -127,14 +126,12 @@ async def run_engine_service(download_dir: Path, port: int, pipe_name: str) -> N
     )
     await session_pool.initialize()
 
-    # 2. State Store, Extension Manager & Queue Manager
+    # 2. State Store & Queue Manager
     state_store = StateStore(db_path)
-    extension_manager = ExtensionManager()
     queue_manager = QueueManager(
         session_pool=session_pool,
         state_store=state_store,
         default_download_dir=download_dir,
-        extension_manager=extension_manager,
     )
     await queue_manager.start()
 

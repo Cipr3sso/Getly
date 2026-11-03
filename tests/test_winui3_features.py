@@ -157,7 +157,7 @@ async def test_winui3_navigation_rail_and_settings_dialog():
     assert sidebar.is_expanded is True
     assert sidebar.width == 200
     labels = [item.label for item in sidebar.macro_items]
-    assert labels == ["Download", "Site Grabber", "Net-Merge", "Estensioni"]
+    assert labels == ["Download", "Site Grabber", "Net-Merge"]
 
     sidebar.toggle_expanded()
     assert sidebar.is_expanded is False
@@ -168,12 +168,10 @@ async def test_winui3_navigation_rail_and_settings_dialog():
     assert "NAV_DOWNLOADS" in keys
     assert "NAV_GRABBER" in keys
     assert "NAV_MONITOR" in keys
-    assert "NAV_EXTENSIONS" in keys
 
     # 3. Dynamic counts & badge rendering
-    sidebar.update_counts({"ALL": 5, "ACTIVE": 2}, {}, extensions_count=3)
+    sidebar.update_counts({"ALL": 5, "ACTIVE": 2}, {})
     assert sidebar.status_counts["ALL"] == 5
-    assert sidebar.extensions_count == 3
 
     # 4. Settings dialog
     grabber_toggled = []

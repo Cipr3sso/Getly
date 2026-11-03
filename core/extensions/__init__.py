@@ -1,6 +1,5 @@
 """
-Gopeed Extension System for Resilient Downloader.
-Provides QuickJS sandboxing, Gopeed manifest parsing, and link resolution hooks.
+Legacy Models and Data Structures for Link Resolution.
 """
 
 from .models import (
@@ -10,9 +9,6 @@ from .models import (
     ResolvedResource,
     ScriptConfig,
 )
-from .manifest import parse_manifest, load_manifest_from_file, url_matches_pattern
-from .engine import QuickJSSandbox, QUICKJS_AVAILABLE
-from .manager import ExtensionManager
 
 __all__ = [
     "ExtensionManifest",
@@ -20,10 +16,4 @@ __all__ = [
     "ResolvedFile",
     "ResolvedResource",
     "ScriptConfig",
-    "parse_manifest",
-    "load_manifest_from_file",
-    "url_matches_pattern",
-    "QuickJSSandbox",
-    "QUICKJS_AVAILABLE",
-    "ExtensionManager",
 ]
