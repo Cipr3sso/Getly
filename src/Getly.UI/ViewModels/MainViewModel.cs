@@ -139,6 +139,13 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _minimizeToTrayOnClose = true;
 
+    [ObservableProperty]
+    private bool _warnOnTorrentWithoutVpn = true;
+
+    public Func<string, Task<bool>>? ConfirmTorrentWithoutVpnPromptAsync;
+
+    public bool HasActiveVpn => NetworkAdapters.Any(a => a.IsVpn && a.IsUp && a.IsEnabled);
+
     public MainViewModel(IpcClient? ipcClient = null, EngineSupervisor? supervisor = null)
     {
         _supervisor = supervisor ?? new EngineSupervisor();
@@ -466,10 +473,31 @@ public partial class MainViewModel : ObservableObject
     public async Task AddDownloadWithParamsAsync(string url, string? category = null, bool startPaused = false, string? filename = null)
     {
         if (string.IsNullOrWhiteSpace(url)) return;
+
+        string cleanUrl = url.Trim();
+        bool isTorrent = cleanUrl.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase)
+            || cleanUrl.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase)
+            || (filename != null && filename.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase))
+            || string.Equals(category, "Torrents", StringComparison.OrdinalIgnoreCase);
+
+        // Privacy check: intercept torrent/magnet BEFORE initiating any connection or announcing IP if not protected by a VPN
+        if (isTorrent && WarnOnTorrentWithoutVpn && !HasActiveVpn)
+        {
+            if (ConfirmTorrentWithoutVpnPromptAsync != null)
+            {
+                bool userAgreed = await ConfirmTorrentWithoutVpnPromptAsync(cleanUrl);
+                if (!userAgreed)
+                {
+                    StatusMessage = "Aggiunta torrent annullata (VPN non connessa).";
+                    return;
+                }
+            }
+        }
+
         try
         {
             StatusMessage = "Aggiunta download...";
-            var task = await _ipcClient.AddTaskAsync(url.Trim(), category: category, destDir: DefaultDownloadDir, filename: filename, startPaused: startPaused);
+            var task = await _ipcClient.AddTaskAsync(cleanUrl, category: category, destDir: DefaultDownloadDir, filename: filename, startPaused: startPaused);
             RunOnUI(() =>
             {
                 TaskItemViewModel vm;
@@ -775,6 +803,7 @@ public partial class MainViewModel : ObservableObject
                     ConfirmationThresholdMB = settings.ConfirmationThresholdMB;
                     AutoCategorize = settings.AutoCategorize;
                     VpnShieldActive = settings.VpnShieldActive;
+                    WarnOnTorrentWithoutVpn = settings.WarnOnTorrentWithoutVpn;
                     AutostartEnabled = settings.AutostartEnabled;
                     EnableFloatingWindow = settings.EnableFloatingWindow;
                     MinimizeToTrayOnClose = settings.MinimizeToTrayOnClose;
@@ -803,6 +832,7 @@ public partial class MainViewModel : ObservableObject
                 ConfirmationThresholdMB = ConfirmationThresholdMB,
                 AutoCategorize = AutoCategorize,
                 VpnShieldActive = VpnShieldActive,
+                WarnOnTorrentWithoutVpn = WarnOnTorrentWithoutVpn,
                 AutostartEnabled = AutostartEnabled,
                 EnableFloatingWindow = EnableFloatingWindow,
                 MinimizeToTrayOnClose = MinimizeToTrayOnClose,
@@ -873,6 +903,7 @@ public class GetlySettingsModel
     public double ConfirmationThresholdMB { get; set; } = 100;
     public bool AutoCategorize { get; set; } = true;
     public bool VpnShieldActive { get; set; } = true;
+    public bool WarnOnTorrentWithoutVpn { get; set; } = true;
     public bool AutostartEnabled { get; set; } = false;
     public bool EnableFloatingWindow { get; set; } = true;
     public bool MinimizeToTrayOnClose { get; set; } = true;

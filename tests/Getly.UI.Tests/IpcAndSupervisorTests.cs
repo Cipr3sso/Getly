@@ -499,4 +499,52 @@ public class IpcAndSupervisorTests : IDisposable
         newVm.MinimizeToTrayOnClose = true;
         await newVm.SaveSettingsAsync();
     }
+
+    [Fact]
+    public async Task Settings_WarnOnTorrentWithoutVpn_PersistsCorrectly()
+    {
+        var vm = new MainViewModel();
+
+        // Default should be true for privacy protection
+        Assert.True(vm.WarnOnTorrentWithoutVpn);
+
+        // Modify to false (e.g. user checked "Non visualizzare più")
+        vm.WarnOnTorrentWithoutVpn = false;
+        await vm.SaveSettingsAsync();
+
+        string settingsPath = MainViewModel.GetSettingsFilePath();
+        Assert.True(File.Exists(settingsPath));
+
+        string json = await File.ReadAllTextAsync(settingsPath);
+        Assert.Contains("\"WarnOnTorrentWithoutVpn\": false", json);
+
+        // Reload in fresh VM
+        var newVm = new MainViewModel();
+        Assert.False(newVm.WarnOnTorrentWithoutVpn);
+
+        // Reset to true
+        newVm.WarnOnTorrentWithoutVpn = true;
+        await newVm.SaveSettingsAsync();
+    }
+
+    [Fact]
+    public async Task AddDownload_TorrentWithoutVpn_InterceptedBeforeAdd()
+    {
+        var vm = new MainViewModel();
+        vm.WarnOnTorrentWithoutVpn = true;
+
+        bool promptInvoked = false;
+        vm.ConfirmTorrentWithoutVpnPromptAsync = url =>
+        {
+            promptInvoked = true;
+            return Task.FromResult(false); // User cancels
+        };
+
+        // Attempt to add a magnet link when no VPN adapter is active
+        string magnet = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Test";
+        await vm.AddDownloadWithParamsAsync(magnet);
+
+        Assert.True(promptInvoked, "Safety prompt must be triggered before adding torrent without VPN");
+        Assert.Contains("annullata", vm.StatusMessage);
+    }
 }

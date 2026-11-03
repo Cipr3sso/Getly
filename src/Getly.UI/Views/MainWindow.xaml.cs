@@ -118,6 +118,7 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         ViewModel = new MainViewModel();
+        ViewModel.ConfirmTorrentWithoutVpnPromptAsync = ShowTorrentWithoutVpnWarningDialogAsync;
         InitializeComponent();
 
         // Customise window title and dimensions
@@ -940,22 +941,141 @@ public sealed partial class MainWindow : Window
             var result = await dialog.ShowAsync();
             var selectedItems = batchItems.Where(i => i.IsSelected).ToList();
 
-            if (result == ContentDialogResult.Primary && selectedItems.Count > 0)
+            if ((result == ContentDialogResult.Primary || result == ContentDialogResult.Secondary) && selectedItems.Count > 0)
             {
-                foreach (var item in selectedItems)
+                bool startPaused = result == ContentDialogResult.Secondary;
+                var torrentsInBatch = selectedItems.Where(i => i.Url.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase) || i.Url.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase)).ToList();
+
+                if (torrentsInBatch.Count > 0 && ViewModel.WarnOnTorrentWithoutVpn && !ViewModel.HasActiveVpn)
                 {
-                    await ViewModel.AddDownloadWithParamsAsync(item.Url, item.Category, startPaused: false, filename: item.Filename);
+                    bool proceed = await ShowTorrentWithoutVpnWarningDialogAsync(torrentsInBatch[0].Url);
+                    if (!proceed)
+                    {
+                        selectedItems.RemoveAll(i => i.Url.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase) || i.Url.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase));
+                        if (selectedItems.Count == 0)
+                        {
+                            ViewModel.StatusMessage = "Download batch annullato per tutela privacy (nessuna VPN attiva).";
+                            return;
+                        }
+                    }
                 }
-                ViewModel.StatusMessage = $"Avviati {selectedItems.Count} download batch.";
+
+                bool originalWarnSetting = ViewModel.WarnOnTorrentWithoutVpn;
+                try
+                {
+                    // Suppress repeated warning prompts within this single batch execution
+                    ViewModel.WarnOnTorrentWithoutVpn = false;
+                    foreach (var item in selectedItems)
+                    {
+                        await ViewModel.AddDownloadWithParamsAsync(item.Url, item.Category, startPaused: startPaused, filename: item.Filename);
+                    }
+                }
+                finally
+                {
+                    ViewModel.WarnOnTorrentWithoutVpn = originalWarnSetting;
+                }
+
+                ViewModel.StatusMessage = startPaused
+                    ? $"Aggiunti in coda {selectedItems.Count} download batch."
+                    : $"Avviati {selectedItems.Count} download batch.";
             }
-            else if (result == ContentDialogResult.Secondary && selectedItems.Count > 0)
+        }
+        finally
+        {
+            _isDialogOpen = false;
+        }
+    }
+
+    private async Task<bool> ShowTorrentWithoutVpnWarningDialogAsync(string url)
+    {
+        if (_isDialogOpen) return false;
+        _isDialogOpen = true;
+
+        try
+        {
+            bool isDark = (this.Content as FrameworkElement)?.ActualTheme == ElementTheme.Dark;
+
+            var doNotAskAgainCheckBox = new CheckBox
             {
-                foreach (var item in selectedItems)
+                Content = "Non mostrare più questo avviso di sicurezza",
+                IsChecked = false,
+                FontSize = 12,
+                Margin = new Thickness(0, 10, 0, 0)
+            };
+
+            var warningCard = new Border
+            {
+                Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(28, 245, 158, 11)),
+                BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(120, 245, 158, 11)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(14, 12, 14, 12)
+            };
+
+            var cardStack = new StackPanel { Spacing = 8 };
+
+            var alertHeader = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+            alertHeader.Children.Add(new FontIcon
+            {
+                Glyph = "\uE7BA", // Warning shield icon
+                FontSize = 20,
+                Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 245, 158, 11))
+            });
+            alertHeader.Children.Add(new TextBlock
+            {
+                Text = "Il tuo indirizzo IP pubblico sarà visibile",
+                FontSize = 13,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Foreground = isDark
+                    ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 252, 211, 77))
+                    : new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 180, 83, 9))
+            });
+            cardStack.Children.Add(alertHeader);
+
+            var descBlock = new TextBlock
+            {
+                Text = "Stai per avviare il download di un link Magnet o Torrent, ma sul tuo computer non risulta connessa alcuna VPN protetta.\r\n\r\nI protocolli P2P / BitTorrent condividono pubblicamente il tuo indirizzo IP a tutti i nodi e tracker della rete swarm. Senza una VPN attiva, il tuo provider e chiunque monitori questo torrent potranno vedere il tuo indirizzo IP reale.\r\n\r\nVuoi procedere comunque con il download prima di connettere una VPN?",
+                FontSize = 12,
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = GetThemeSecondaryBrush(),
+                LineHeight = 18
+            };
+            cardStack.Children.Add(descBlock);
+            warningCard.Child = cardStack;
+
+            var contentPanel = new StackPanel
+            {
+                Spacing = 10,
+                Width = 460,
+                Children =
                 {
-                    await ViewModel.AddDownloadWithParamsAsync(item.Url, item.Category, startPaused: true, filename: item.Filename);
+                    warningCard,
+                    doNotAskAgainCheckBox
                 }
-                ViewModel.StatusMessage = $"Aggiunti in coda {selectedItems.Count} download batch.";
+            };
+
+            var dialog = new ContentDialog
+            {
+                Title = "Avviso Sicurezza Torrent (Nessuna VPN Rilevata)",
+                PrimaryButtonText = "Procedi senza VPN",
+                CloseButtonText = "Annulla (Consigliato)",
+                DefaultButton = ContentDialogButton.Close,
+                Content = contentPanel
+            };
+            PrepareDialog(dialog);
+
+            var result = await dialog.ShowAsync();
+            if (result == ContentDialogResult.Primary)
+            {
+                if (doNotAskAgainCheckBox.IsChecked == true)
+                {
+                    ViewModel.WarnOnTorrentWithoutVpn = false;
+                    _ = ViewModel.SaveSettingsAsync();
+                }
+                return true;
             }
+
+            return false;
         }
         finally
         {

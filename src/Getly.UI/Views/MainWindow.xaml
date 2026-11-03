@@ -533,6 +533,13 @@
                                 <ToggleSwitch
                                     Header="Protezione automatica VPN Shield (Kill-Switch per VPN)"
                                     IsOn="{x:Bind ViewModel.VpnShieldActive, Mode=TwoWay}" />
+
+                                <Border Height="1" Background="{ThemeResource CardStrokeColorDefaultBrush}" />
+
+                                <ToggleSwitch
+                                    Header="Avviso di sicurezza per Torrent senza VPN"
+                                    IsOn="{x:Bind ViewModel.WarnOnTorrentWithoutVpn, Mode=TwoWay}" />
+                                <TextBlock Text="Mostra un avviso di sicurezza prima di negoziare o aggiungere download Torrent o Magnet se non è connessa una VPN attiva, per proteggere il tuo indirizzo IP pubblico." FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
                             </StackPanel>
                         </Border>
 
