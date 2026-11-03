@@ -125,3 +125,85 @@ async def test_session_pool_refresh_adapters_excludes_virtual():
         assert not ad.ip.startswith("127.")
         assert ad.is_up
         assert not InterfaceDetector._is_excluded_adapter(ad)
+
+
+@pytest.mark.asyncio
+async def test_session_pool_dynamic_vpn_adapter_addition(monkeypatch):
+    """
+    Verifies that when a VPN interface (like NordLynx) appears dynamically after boot,
+    refresh_adapters() creates its ClientSession and does NOT throw KeyError: 'NordLynx'
+    when get_primary_adapter_and_session() or get_next_adapter_and_session() is called.
+    """
+    initial_ad = NetworkAdapter(
+        name="Wi-Fi 3",
+        friendly_name="Wi-Fi",
+        ip="192.168.1.89",
+        is_up=True,
+        gateway="192.168.1.1",
+        is_primary=True,
+        is_vpn=False,
+    )
+    vpn_ad = NetworkAdapter(
+        name="NordLynx",
+        friendly_name="NordLynx",
+        ip="10.5.0.2",
+        is_up=True,
+        gateway="10.5.0.1",
+        is_primary=False,
+        is_vpn=True,
+    )
+
+    current_detected = [initial_ad]
+    monkeypatch.setattr(InterfaceDetector, "get_active_internet_adapters", lambda: list(current_detected))
+
+    pool = MultiInterfaceSessionPool(adapters=[initial_ad], vpn_shield_enabled=True)
+    await pool.initialize()
+    assert pool.is_initialized
+    assert "Wi-Fi 3" in pool._sessions
+    assert "NordLynx" not in pool._sessions
+
+    # VPN connects while app is running
+    current_detected.append(vpn_ad)
+    refreshed = pool.refresh_adapters()
+
+    assert any(a.name == "NordLynx" for a in refreshed)
+    # VPN Shield is enabled, so active_adapters strictly isolates traffic to VPN!
+    assert pool.active_adapters == [vpn_ad]
+
+    # Verify session for NordLynx was dynamically created and does NOT throw KeyError
+    primary_ad, primary_sess = pool.get_primary_adapter_and_session()
+    assert primary_ad.name == "NordLynx"
+    assert primary_sess is not None
+    assert not primary_sess.closed
+
+    next_ad, next_sess = pool.get_next_adapter_and_session()
+    assert next_ad.name == "NordLynx"
+    assert next_sess is not None
+
+    named_sess = pool.get_session_by_name("NordLynx")
+    assert named_sess is not None
+    assert not named_sess.closed
+
+    await pool.close()
+    assert primary_sess.closed
+
+
+@pytest.mark.asyncio
+async def test_session_pool_lazy_session_creation():
+    """Verifies _get_or_create_session creates session on-demand if missing from _sessions."""
+    ad = NetworkAdapter(name="Ethernet Test", ip="192.168.1.200", is_up=True)
+    pool = MultiInterfaceSessionPool(adapters=[ad])
+    await pool.initialize()
+
+    # Intentionally remove session to test lazy creation fallback
+    del pool._sessions["Ethernet Test"]
+    assert "Ethernet Test" not in pool._sessions
+
+    sess = pool.get_session_by_name("Ethernet Test")
+    assert sess is not None
+    assert not sess.closed
+    assert "Ethernet Test" in pool._sessions
+
+    await pool.close()
+    assert sess.closed
+

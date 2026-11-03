@@ -75,17 +75,54 @@ class MultiInterfaceSessionPool:
             if detected:
                 old_by_name = {a.name: a for a in self._adapters}
                 new_adapters: List[NetworkAdapter] = []
+                detected_names = set()
                 for ad in detected:
+                    detected_names.add(ad.name)
                     if ad.name in old_by_name:
                         old_ad = old_by_name[ad.name]
+                        ip_changed = (old_ad.ip != ad.ip)
                         old_ad.ip = ad.ip
                         old_ad.is_up = ad.is_up
                         old_ad.speed_mbps = ad.speed_mbps
                         old_ad.is_primary = getattr(ad, "is_primary", False)
                         old_ad.is_vpn = getattr(ad, "is_vpn", False)
                         new_adapters.append(old_ad)
+
+                        if ip_changed and self._is_initialized:
+                            old_sess = self._sessions.pop(ad.name, None)
+                            if old_sess:
+                                self._session_to_adapter.pop(id(old_sess), None)
+                                if not old_sess.closed:
+                                    try:
+                                        loop = asyncio.get_running_loop()
+                                        loop.create_task(old_sess.close())
+                                    except RuntimeError:
+                                        pass
+                            new_sess = self.create_session(old_ad)
+                            self._sessions[ad.name] = new_sess
+                            self._session_to_adapter[id(new_sess)] = old_ad
                     else:
                         new_adapters.append(ad)
+                        if self._is_initialized:
+                            # Immediately instantiate session for newly connected adapter (e.g. NordLynx / WireGuard / OpenVPN)
+                            new_sess = self.create_session(ad)
+                            self._sessions[ad.name] = new_sess
+                            self._session_to_adapter[id(new_sess)] = ad
+
+                # Clean up sessions for adapters that are no longer detected (disconnected)
+                if self._is_initialized:
+                    for old_name in list(self._sessions.keys()):
+                        if old_name != "default" and old_name not in detected_names:
+                            gone_sess = self._sessions.pop(old_name, None)
+                            if gone_sess:
+                                self._session_to_adapter.pop(id(gone_sess), None)
+                                if not gone_sess.closed:
+                                    try:
+                                        loop = asyncio.get_running_loop()
+                                        loop.create_task(gone_sess.close())
+                                    except RuntimeError:
+                                        pass
+
                 self._adapters = new_adapters
                 self._round_robin_iter = None
         except Exception as exc:
@@ -216,9 +253,37 @@ class MultiInterfaceSessionPool:
             self._round_robin_iter = itertools.cycle(self._adapters)
             self._is_initialized = True
 
+    @property
+    def primary_adapter(self) -> Optional[NetworkAdapter]:
+        """Returns the current primary or VPN-preferred active adapter."""
+        active = self.active_adapters
+        if not active:
+            active = self._adapters
+        if not active:
+            return None
+        return next((a for a in active if a.is_primary), active[0])
+
+    def _get_or_create_session(self, adapter: NetworkAdapter) -> aiohttp.ClientSession:
+        """
+        Retrieves existing session or creates it on-demand with IPv4 TCPConnector
+        and Winsock IP_UNICASTIF socket binding if missing or closed.
+        """
+        session = self._sessions.get(adapter.name)
+        if session is None or session.closed:
+            session = self.create_session(adapter)
+            self._sessions[adapter.name] = session
+            self._session_to_adapter[id(session)] = adapter
+        return session
+
     def get_session_by_name(self, name: str) -> Optional[aiohttp.ClientSession]:
-        """Returns the session bound to the specified adapter name."""
-        return self._sessions.get(name)
+        """Returns the session bound to the specified adapter name, creating it on-demand if missing."""
+        session = self._sessions.get(name)
+        if session is not None and not session.closed:
+            return session
+        ad = next((a for a in self._adapters if a.name == name), None)
+        if ad:
+            return self._get_or_create_session(ad)
+        return None
 
     def get_adapter_for_session(self, session: aiohttp.ClientSession) -> Optional[NetworkAdapter]:
         """Returns the adapter associated with a given ClientSession."""
@@ -237,7 +302,7 @@ class MultiInterfaceSessionPool:
             active = self._adapters  # Fallback if all were disabled
 
         primary = next((a for a in active if a.is_primary), active[0])
-        session = self._sessions[primary.name]
+        session = self._get_or_create_session(primary)
         return primary, session
 
     def get_next_adapter_and_session(self) -> Tuple[NetworkAdapter, aiohttp.ClientSession]:
@@ -256,7 +321,7 @@ class MultiInterfaceSessionPool:
             self._round_robin_iter = itertools.cycle(active)
 
         adapter = next(self._round_robin_iter)
-        session = self._sessions[adapter.name]
+        session = self._get_or_create_session(adapter)
         return adapter, session
 
     async def close(self) -> None:
