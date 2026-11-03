@@ -15,6 +15,17 @@ logger = logging.getLogger(__name__)
 FSCTL_SET_SPARSE = 0x000900C4
 
 
+if sys.platform == "win32":
+    class OVERLAPPED(ctypes.Structure):
+        _fields_ = [
+            ("Internal", ctypes.c_size_t),
+            ("InternalHigh", ctypes.c_size_t),
+            ("Offset", wintypes.DWORD),
+            ("OffsetHigh", wintypes.DWORD),
+            ("hEvent", wintypes.HANDLE),
+        ]
+
+
 @dataclass
 class WriteCommand:
     offset: int
@@ -45,6 +56,7 @@ class StorageEngine:
 
         self._queue: Optional[asyncio.Queue] = None
         self._file = None
+        self._win32_handle = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._worker_task: Optional[asyncio.Task] = None
         self._is_open = False
@@ -72,6 +84,14 @@ class StorageEngine:
         # Open in read-write binary mode (create if not exists)
         mode = "r+b" if self.filepath.exists() else "w+b"
         self._file = open(self.filepath, mode)
+
+        if sys.platform == "win32":
+            try:
+                import msvcrt
+                self._win32_handle = wintypes.HANDLE(msvcrt.get_osfhandle(self._file.fileno()))
+            except Exception as exc:
+                logger.debug("Could not get Win32 handle from file: %s", exc)
+                self._win32_handle = None
 
         if self.sparse and self.total_size > 0:
             self._apply_sparse_allocation()
@@ -132,7 +152,37 @@ class StorageEngine:
                 self._queue.task_done()
 
     def _write_sync(self, offset: int, data: bytes) -> None:
-        """Executes seek and write synchronously within executor thread."""
+        """
+        Executes positional write without moving the global file pointer.
+        Uses Win32 WriteFile with OVERLAPPED on Windows, os.pwrite on POSIX,
+        with fallback to seek() + write().
+        """
+        if sys.platform == "win32" and self._win32_handle:
+            try:
+                ov = OVERLAPPED()
+                ov.Offset = offset & 0xFFFFFFFF
+                ov.OffsetHigh = (offset >> 32) & 0xFFFFFFFF
+                written = wintypes.DWORD(0)
+                res = ctypes.windll.kernel32.WriteFile(
+                    self._win32_handle,
+                    data,
+                    len(data),
+                    ctypes.byref(written),
+                    ctypes.byref(ov),
+                )
+                if res != 0 and written.value == len(data):
+                    return
+            except Exception as exc:
+                logger.debug("Win32 positional WriteFile error at %d: %s, falling back", offset, exc)
+
+        if hasattr(os, "pwrite"):
+            try:
+                os.pwrite(self._file.fileno(), data, offset)
+                return
+            except Exception:
+                pass
+
+        # Fallback to seek and write
         self._file.seek(offset)
         self._file.write(data)
 

@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from pathlib import Path
+import time
 from typing import Optional, List, Dict, Callable, Any
 import aiohttp
 
@@ -103,6 +104,8 @@ class DownloadEngine:
         self._total_downloaded = 0
         self._adapter_downloaded: Dict[str, int] = {}
         self._ip_restricted_fallback = False
+        self._last_progress_time: float = 0.0
+        self._last_progress_bytes: int = 0
         self.error_message: Optional[str] = None
 
     @property
@@ -264,6 +267,8 @@ class DownloadEngine:
             await asyncio.gather(*self._worker_tasks, return_exceptions=True)
             is_complete = self.planner.is_all_completed
             if is_complete:
+                if self.on_progress:
+                    self.on_progress(self.info.total_size, self.info.total_size, 100.0)
                 logger.info("Download completed successfully: %s (%d bytes)", filepath, self.info.total_size)
                 return True
             else:
@@ -300,11 +305,38 @@ class DownloadEngine:
         if adapter and adapter.name:
             self._adapter_downloaded[adapter.name] = self._adapter_downloaded.get(adapter.name, 0) + byte_count
         if self.on_progress and self.planner:
-            self.on_progress(
-                self.planner.total_downloaded_bytes,
-                self.planner.total_size,
-                self.planner.progress_percentage,
-            )
+            now = time.monotonic()
+            downloaded = self.planner.total_downloaded_bytes
+            total = self.planner.total_size
+            # Batch progress callbacks (>=200ms, >=1MB, or on completion) to reduce CPU/event-loop overhead
+            if (
+                now - self._last_progress_time >= 0.2
+                or downloaded - self._last_progress_bytes >= 1048576
+                or (total > 0 and downloaded >= total)
+            ):
+                self._last_progress_time = now
+                self._last_progress_bytes = downloaded
+                self.on_progress(
+                    downloaded,
+                    total,
+                    self.planner.progress_percentage,
+                )
+
+    def _emit_single_stream_progress(self, offset: int, total: int, force: bool = False) -> None:
+        """Throttled progress dispatcher for single-stream fallbacks."""
+        if not self.on_progress:
+            return
+        now = time.monotonic()
+        if (
+            force
+            or now - self._last_progress_time >= 0.2
+            or offset - self._last_progress_bytes >= 1048576
+            or (total > 0 and offset >= total)
+        ):
+            self._last_progress_time = now
+            self._last_progress_bytes = offset
+            pct = (offset / total * 100.0) if total > 0 else 0.0
+            self.on_progress(offset, total, pct)
 
     def get_adapter_bytes(self) -> Dict[str, int]:
         """Returns the dictionary of downloaded bytes per network adapter."""
@@ -390,10 +422,12 @@ class DownloadEngine:
                         await self.storage.write(offset, block)
                         offset += len(block)
                         self._on_bytes_received(len(block), primary_adapter)
-                        if self.on_progress:
-                            total = (self.info.total_size if self.info else 0) or offset
-                            pct = (offset / total * 100.0) if total > 0 else 0.0
-                            self.on_progress(offset, total, pct)
+                        total = (self.info.total_size if self.info else 0) or offset
+                        self._emit_single_stream_progress(offset, total)
+
+                    if offset > 0:
+                        total = (self.info.total_size if self.info else 0) or offset
+                        self._emit_single_stream_progress(offset, total, force=True)
 
                     if offset == 0:
                         self.error_message = "Risorsa vuota (0 byte ricevuti)"
@@ -478,10 +512,12 @@ class DownloadEngine:
                                 await self.storage.write(offset, chunk_bytes)
                                 offset += len(chunk_bytes)
                                 self._on_bytes_received(len(chunk_bytes), primary_adapter)
-                                if self.on_progress:
-                                    total = (self.info.total_size if self.info else 0) or offset
-                                    pct = (offset / total * 100.0) if total > 0 else 0.0
-                                    self.on_progress(offset, total, pct)
+                                total = (self.info.total_size if self.info else 0) or offset
+                                self._emit_single_stream_progress(offset, total)
+
+                        if offset > 0:
+                            total = (self.info.total_size if self.info else 0) or offset
+                            self._emit_single_stream_progress(offset, total, force=True)
 
                         if offset == 0:
                             self.error_message = "Risorsa vuota (0 byte ricevuti)"
