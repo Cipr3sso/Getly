@@ -1,8 +1,9 @@
 import asyncio
 import logging
 import os
-import time
 from pathlib import Path
+import re
+import time
 from typing import Dict, List, Optional, Callable, Any, Tuple
 import urllib.parse
 
@@ -267,6 +268,32 @@ class QueueManager:
                     logger.info("File %s restored on disk for task %s.", target_path, task.task_id)
                     task.error_message = None
                     self.state_store.update_task_status(task.task_id, DownloadStatus.DELETED, error=None)
+                elif task.status == DownloadStatus.FAILED:
+                    if not file_exists and task.destination_dir:
+                        dest = Path(task.destination_dir)
+                        clean_stem = re.sub(r"\.f\d+$", "", Path(task.filename).stem)
+                        for cand in dest.glob(f"{clean_stem}.*"):
+                            if cand.is_file() and not cand.name.endswith(".part") and not cand.name.endswith(".ytdl"):
+                                target_path = cand
+                                file_exists = True
+                                task.filename = cand.name
+                                break
+
+                    if file_exists:
+                        sz = target_path.stat().st_size
+                        if sz > 0 and (not task.total_size or sz >= task.total_size or task.total_size < 10 * 1024 * 1024):
+                            logger.info(
+                                "Found completed file on disk for FAILED task %s: %s (%d bytes). Recovering to COMPLETED.",
+                                task.task_id,
+                                target_path.name,
+                                sz,
+                            )
+                            task.status = DownloadStatus.COMPLETED
+                            task.error_message = None
+                            task.total_size = sz
+                            task.downloaded_bytes = sz
+                            self.state_store.update_task_status(task.task_id, DownloadStatus.COMPLETED, error=None)
+                            self.state_store.save_task(task)
             except Exception:
                 pass
 

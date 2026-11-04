@@ -226,3 +226,40 @@ async def test_pipe_server_media_extract_info(tmp_path: Path):
 
     await pool.close()
 
+
+@pytest.mark.asyncio
+async def test_queue_manager_recovers_failed_task_if_merged_file_exists(tmp_path: Path):
+    ad = NetworkAdapter(name="Wi-Fi", ip="192.168.1.50", is_primary=True, is_up=True)
+    pool = MultiInterfaceSessionPool(adapters=[ad])
+    store = StateStore(tmp_path / "test_recover_state.db")
+    qm = QueueManager(session_pool=pool, state_store=store, default_download_dir=tmp_path)
+
+    # Create dummy final merged file
+    final_file = tmp_path / "Video" / "Test Movie.mp4"
+    final_file.parent.mkdir(parents=True, exist_ok=True)
+    final_file.write_bytes(b"A" * 1024 * 1024)
+
+    # Task was recorded as FAILED with temporary chunk name .f401.mp4
+    task = DownloadTask(
+        url="https://www.youtube.com/watch?v=mock",
+        destination_dir=str(tmp_path / "Video"),
+        filename="Test Movie.f401.mp4",
+        status=DownloadStatus.FAILED,
+        total_size=1024,
+        error_message="WinError 2 file not found",
+    )
+    store.save_task(task)
+    qm._tasks[task.task_id] = task
+
+    # Run disk check
+    qm.check_files_status()
+
+    assert task.status == DownloadStatus.COMPLETED
+    assert task.error_message is None
+    assert task.filename == "Test Movie.mp4"
+    assert task.total_size == 1024 * 1024
+    assert task.downloaded_bytes == 1024 * 1024
+
+    await pool.close()
+
+
