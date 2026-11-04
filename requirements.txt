@@ -10,6 +10,7 @@ libtorrent>=2.0.0
 curl_cffi>=0.7.0
 beautifulsoup4>=4.12.0
 yt-dlp>=2024.0.0
+dukpy>=0.4.0
 
 # Brand Asset & Icon Generation
 Pillow>=10.0.0

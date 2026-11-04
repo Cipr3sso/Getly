@@ -1,9 +1,10 @@
+from contextlib import contextmanager
 import json
 import logging
 import os
 from pathlib import Path
 import sqlite3
-from typing import List, Optional, Tuple
+from typing import Generator, List, Optional, Tuple
 from core.scheduler.task import DownloadTask, DownloadStatus
 from core.engine.chunk_planner import Chunk
 
@@ -21,11 +22,16 @@ class StateStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
-    def _get_connection(self) -> sqlite3.Connection:
+    @contextmanager
+    def _get_connection(self) -> Generator[sqlite3.Connection, None, None]:
         conn = sqlite3.connect(self.db_path)
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("PRAGMA synchronous=NORMAL;")
-        return conn
+        try:
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA synchronous=NORMAL;")
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def verify_integrity(self) -> bool:
         """Runs SQLite PRAGMA integrity_check to verify database file health."""
