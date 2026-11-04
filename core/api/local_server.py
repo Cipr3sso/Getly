@@ -150,6 +150,7 @@ class LocalHttpServer(CNLServer):
             "auto_start": auto_start,
             "file_size": parsed_size,
             "total_size": parsed_size,
+            "custom_format": data.get("custom_format") or data.get("format"),
         }
 
         logger.info("Local HTTP server received /add: %s (filename: %s)", url, clean_filename)

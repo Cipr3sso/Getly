@@ -73,7 +73,8 @@ class StateStore:
                 selected_files TEXT,
                 priority INTEGER DEFAULT 4,
                 files_status TEXT,
-                headers TEXT
+                headers TEXT,
+                custom_format TEXT
             );
             """)
 
@@ -94,6 +95,7 @@ class StateStore:
                 ("priority", "INTEGER DEFAULT 4"),
                 ("files_status", "TEXT"),
                 ("headers", "TEXT"),
+                ("custom_format", "TEXT"),
             ):
                 try:
                     conn.execute(f"ALTER TABLE tasks ADD COLUMN {col} {col_def};")
@@ -169,8 +171,8 @@ class StateStore:
                 status, total_size, downloaded_bytes, etag, error_message, created_at,
                 cookies, referer, user_agent, category,
                 task_type, seeds, peers, upload_speed_bps, pieces_total, pieces_completed,
-                info_hash, selected_files, priority, files_status, headers
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                info_hash, selected_files, priority, files_status, headers, custom_format
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """, (
                 task.task_id,
                 task.url,
@@ -198,6 +200,7 @@ class StateStore:
                 prio,
                 files_status_json,
                 headers_json,
+                getattr(task, "custom_format", None),
             ))
             conn.commit()
 
@@ -320,6 +323,7 @@ class StateStore:
             selected_files=selected_files,
             priority=r[23] if len(r) > 23 and r[23] is not None else 4,
             files_status=files_status,
+            custom_format=r[26] if len(r) > 26 else None,
         )
 
     _TASK_COLUMNS = """
@@ -327,7 +331,7 @@ class StateStore:
         status, total_size, downloaded_bytes, etag, error_message, created_at,
         cookies, referer, user_agent, category,
         task_type, seeds, peers, upload_speed_bps, pieces_total, pieces_completed,
-        info_hash, selected_files, priority, files_status, headers
+        info_hash, selected_files, priority, files_status, headers, custom_format
     """
 
     def get_pending_tasks(self) -> List[DownloadTask]:

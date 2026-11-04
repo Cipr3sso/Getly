@@ -47,6 +47,7 @@ class DownloadTask:
     selected_files: Optional[List[int]] = None
     priority: int = 4  # 0=Skip, 1=Low, 4=Normal, 7=High
     files_status: Optional[List[dict]] = None
+    custom_format: Optional[str] = None
 
     @property
     def download_speed_bps(self) -> float:

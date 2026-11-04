@@ -371,6 +371,7 @@ class QueueManager:
         selected_files: Optional[List[int]] = None,
         info_hash: Optional[str] = None,
         priority: int = 4,
+        custom_format: Optional[str] = None,
     ) -> DownloadTask:
         """Adds a single URL to the download queue, organized into category subdirectories."""
         clean_filename = None
@@ -472,6 +473,8 @@ class QueueManager:
                         existing.filename = clean_filename
                     if parsed_total_size > 0 and (not existing.total_size or existing.total_size <= 0):
                         existing.total_size = parsed_total_size
+                    if custom_format:
+                        existing.custom_format = custom_format
 
                     existing.error_message = None
                     existing.status = DownloadStatus.PENDING if (auto_start is not False and not start_paused) else DownloadStatus.PAUSED
@@ -506,6 +509,7 @@ class QueueManager:
             selected_files=selected_files,
             info_hash=info_hash,
             priority=priority,
+            custom_format=custom_format,
         )
         self.state_store.save_task(task)
         self._tasks[task.task_id] = task
@@ -822,6 +826,7 @@ class QueueManager:
                     destination_dir=task.destination_dir,
                     on_progress=on_progress,
                     source_address=source_ip,
+                    custom_format=getattr(task, "custom_format", None),
                 )
             else:
                 engine = DownloadEngine(

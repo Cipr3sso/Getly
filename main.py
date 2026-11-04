@@ -162,6 +162,8 @@ async def run_desktop_app(download_dir: Path, port: int, start_minimized: bool =
             cookies=data.get("cookies"),
             referer=data.get("referer"),
             user_agent=data.get("user_agent"),
+            category=data.get("category"),
+            custom_format=data.get("custom_format"),
         )
 
     async def _on_focus():

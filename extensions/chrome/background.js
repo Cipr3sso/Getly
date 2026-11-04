@@ -524,6 +524,67 @@ async function sendMediaToGetly(mediaItem, refererUrl) {
   }).then((r) => r.json());
 }
 
+/**
+ * Handles download requests originating from the floating video panel in content.js
+ */
+async function downloadVideoFromPage(request, sender) {
+  const targetUrl = request.url || "";
+  const refererUrl = request.referer || (sender.tab ? sender.tab.url : "");
+  const format = request.format || "best";
+
+  // Map format to yt-dlp selector
+  let customFormat = "";
+  let category = "Video";
+  if (format === "1080p") {
+    customFormat = "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best";
+  } else if (format === "720p") {
+    customFormat = "bestvideo[height<=720]+bestaudio/best[height<=720]/best";
+  } else if (format === "480p") {
+    customFormat = "bestvideo[height<=480]+bestaudio/best[height<=480]/best";
+  } else if (format === "audio") {
+    customFormat = "bestaudio/best";
+    category = "Audio";
+  } else {
+    // "best"
+    customFormat = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best";
+  }
+
+  // Extract cookies
+  const cookieString = await extractFullCookieHeader(targetUrl, refererUrl);
+
+  let cleanFilename = "";
+  if (request.title) {
+    cleanFilename = `${request.title.replace(/[\\/:*?"<>|]/g, "_")}.${format === "audio" ? "m4a" : "mp4"}`;
+  }
+
+  const payload = {
+    url: targetUrl,
+    filename: cleanFilename,
+    category: category,
+    custom_format: customFormat,
+    headers: {
+      Referer: refererUrl,
+      "User-Agent": navigator.userAgent,
+      Cookie: cookieString,
+      Accept: "*/*",
+      "Sec-Fetch-Mode": "navigate",
+    },
+    auto_start: true,
+  };
+
+  const response = await fetch(`${GETLY_API_BASE}/add`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Local daemon returned status ${response.status}`);
+  }
+
+  return await response.json();
+}
+
 // ---------------------------------------------------------------------------
 // 5. Popup Communication (Message Dispatcher)
 // ---------------------------------------------------------------------------
@@ -537,9 +598,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.type === "GET_TAB_MEDIA") {
-    const list = mediaByTab.get(request.tabId) || [];
+    const targetTabId = request.tabId !== undefined ? request.tabId : sender.tab?.id;
+    const list = mediaByTab.get(targetTabId) || [];
     sendResponse({ media: list });
     return false;
+  }
+
+  if (request.type === "DOWNLOAD_VIDEO_FROM_PAGE") {
+    downloadVideoFromPage(request, sender)
+      .then((res) => sendResponse({ success: true, result: res }))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
   }
 
   if (request.type === "DOWNLOAD_MEDIA_ITEM") {

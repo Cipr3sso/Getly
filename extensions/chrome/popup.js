@@ -9,6 +9,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const statusBadge = document.getElementById("statusBadge");
   const statusText = document.getElementById("statusText");
   const interceptionToggle = document.getElementById("interceptionToggle");
+  const floatingButtonToggle = document.getElementById("floatingButtonToggle");
   const toast = document.getElementById("toast");
 
   // Elements - Navigation Tabs
@@ -64,10 +65,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   // -------------------------------------------------------------------------
-  // 1. Interception Toggle
+  // 1. Interception & Floating Button Toggles
   // -------------------------------------------------------------------------
-  chrome.storage.local.get({ interceptionEnabled: true }, (items) => {
+  chrome.storage.local.get({ interceptionEnabled: true, floatingButtonEnabled: true }, (items) => {
     interceptionToggle.checked = items.interceptionEnabled !== false;
+    if (floatingButtonToggle) {
+      floatingButtonToggle.checked = items.floatingButtonEnabled !== false;
+    }
   });
 
   interceptionToggle.addEventListener("change", () => {
@@ -76,6 +80,15 @@ document.addEventListener("DOMContentLoaded", async () => {
       showToast(isChecked ? "Cattura download abilitata" : "Cattura download disabilitata");
     });
   });
+
+  if (floatingButtonToggle) {
+    floatingButtonToggle.addEventListener("change", () => {
+      const isChecked = floatingButtonToggle.checked;
+      chrome.storage.local.set({ floatingButtonEnabled: isChecked }, () => {
+        showToast(isChecked ? "Pulsante video volante abilitato" : "Pulsante video volante disabilitato");
+      });
+    });
+  }
 
   // -------------------------------------------------------------------------
   // 2. Check Daemon Health
