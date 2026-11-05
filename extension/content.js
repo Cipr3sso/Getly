@@ -4,9 +4,11 @@
  * and displays an elegant, acrylic floating download bar inspired by IDM,
  * styled with modern Fluent / WinUI 3 aesthetics inside an isolated Shadow DOM.
  *
- * Fully draggable / movable across the player container with position persistence,
- * complete event capture to prevent click-through to underlying controls,
- * and solid opaque background styling.
+ * Features:
+ * - 100% Opaque solid background (#0f172a): zero ghost buttons visible from underneath.
+ * - Draggable & Movable across the player container via the drag handle (⠿) or bar background.
+ * - Persistent position: remembers user's preferred spot across videos and page loads.
+ * - Full bubble-phase event isolation: stops clicks/pointers from bleeding into YouTube/player controls.
  */
 
 (function () {
@@ -223,7 +225,7 @@
         .panel-wrap {
           display: flex;
           flex-direction: column;
-          align-items: flex-start;
+          align-items: flex-end;
           gap: 6px;
           opacity: 0;
           transform: translateY(-4px) scale(0.98);
@@ -239,6 +241,7 @@
 
         .panel-wrap.dragging {
           transition: none !important;
+          cursor: grabbing !important;
         }
 
         /* Pill bar container - 100% OPAQUE to prevent any underlying player buttons from showing through */
@@ -267,15 +270,15 @@
           cursor: grabbing !important;
         }
 
-        /* Drag Handle */
+        /* Movable Drag Handle */
         .pill-drag-handle {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          width: 15px;
+          width: 16px;
           height: 26px;
           cursor: grab;
-          color: #64748B;
+          color: #94A3B8;
           margin-right: 3px;
           transition: color 0.15s ease;
           touch-action: none;
@@ -285,14 +288,16 @@
           color: #38BDF8;
         }
 
-        .pill-drag-handle:active {
-          cursor: grabbing;
+        .pill-drag-handle:active, .panel-wrap.dragging .pill-drag-handle {
+          cursor: grabbing !important;
+          color: #38BDF8;
         }
 
         .drag-icon {
           width: 12px;
           height: 18px;
           fill: currentColor;
+          pointer-events: none;
         }
 
         /* Primary action button */
@@ -311,6 +316,7 @@
           cursor: pointer;
           outline: none;
           transition: background 0.15s ease, color 0.15s ease;
+          pointer-events: auto !important;
         }
 
         .btn-main:hover {
@@ -332,6 +338,7 @@
           stroke-linecap: round;
           stroke-linejoin: round;
           filter: drop-shadow(0 0 4px rgba(56, 189, 248, 0.5));
+          pointer-events: none;
         }
 
         /* Divider inside pill */
@@ -340,6 +347,7 @@
           height: 16px;
           background: rgba(255, 255, 255, 0.18);
           margin: 0 3px;
+          pointer-events: none;
         }
 
         /* Dropdown arrow button & Close button */
@@ -356,6 +364,7 @@
           cursor: pointer;
           outline: none;
           transition: background 0.15s ease, color 0.15s ease;
+          pointer-events: auto !important;
         }
 
         .btn-dropdown:hover, .btn-close:hover {
@@ -375,6 +384,7 @@
           stroke-width: 2;
           stroke-linecap: round;
           stroke-linejoin: round;
+          pointer-events: none;
         }
 
         /* Quality Dropdown Menu - 100% OPAQUE */
@@ -388,6 +398,7 @@
           box-shadow: 0 18px 40px rgba(0, 0, 0, 0.9);
           animation: menuFadeIn 0.15s ease-out;
           pointer-events: auto !important;
+          box-sizing: border-box;
         }
 
         .menu.open {
@@ -425,6 +436,7 @@
           outline: none;
           box-sizing: border-box;
           transition: background 0.12s ease, color 0.12s ease;
+          pointer-events: auto !important;
         }
 
         .menu-item:hover {
@@ -582,13 +594,14 @@
       const sniffedList = this.shadow.getElementById("sniffedList");
 
       // =========================================================================
-      // 1. Intercept and completely STOP ALL pointer/mouse/touch events in capture
-      // phase so clicks on Getly NEVER bleed through to player buttons underneath!
+      // 1. Prevent ANY mouse/pointer/touch event from escaping this.host to the page.
+      // We listen in the BUBBLING PHASE (capture: false) on this.host!
+      // This allows inner buttons inside the Shadow DOM to receive events normally,
+      // while stopping the events from reaching YouTube/player elements behind!
       // =========================================================================
-      const STOP_EVENTS = [
+      const BUBBLE_STOP_EVENTS = [
         "pointerdown",
         "pointerup",
-        "pointermove",
         "pointercancel",
         "mousedown",
         "mouseup",
@@ -600,18 +613,13 @@
         "touchmove",
       ];
 
-      STOP_EVENTS.forEach((evt) => {
-        this.host.addEventListener(
-          evt,
-          (e) => {
-            e.stopPropagation();
-            e.stopImmediatePropagation();
-          },
-          { capture: true }
-        );
+      BUBBLE_STOP_EVENTS.forEach((evt) => {
+        this.host.addEventListener(evt, (e) => {
+          e.stopPropagation();
+        });
       });
 
-      // Track mouse hovering over panel
+      // Hover on host maintains visibility
       this.host.addEventListener("mouseenter", () => {
         this.isMouseOverPanel = true;
         this.showPanel();
@@ -651,7 +659,7 @@
       });
 
       // =========================================================================
-      // 2. Drag & Drop Implementation (Movable anywhere on the player)
+      // 2. Drag & Drop System (Movable anywhere on the player)
       // =========================================================================
       let isDragging = false;
       let hasDragged = false;
@@ -661,23 +669,8 @@
       let startHostTop = 0;
       let lastDragEndTime = 0;
 
-      const onDragPointerDown = (e) => {
+      const startDrag = (e) => {
         if (e.button !== 0) return; // Left mouse click only
-
-        // Ignore drag if clicking interactive buttons or inside open menu
-        const path = e.composedPath ? e.composedPath() : [e.target];
-        const isInteractive = path.some((el) => {
-          if (!el || !el.id) return false;
-          return el.id === "btnMain" || el.id === "btnDropdown" || el.id === "btnClose" || el.id === "qualityMenu";
-        });
-
-        if (isInteractive && !path.includes(dragHandle)) {
-          return;
-        }
-
-        e.preventDefault();
-        e.stopPropagation();
-        e.stopImmediatePropagation();
 
         isDragging = true;
         hasDragged = false;
@@ -687,7 +680,7 @@
         const containerRect = container.getBoundingClientRect();
         const hostRect = this.host.getBoundingClientRect();
 
-        // Convert any right-anchored styling to explicit absolute left/top
+        // Convert any right-anchored styling to explicit left/top relative to container
         startHostLeft = hostRect.left - containerRect.left;
         startHostTop = hostRect.top - containerRect.top;
 
@@ -698,16 +691,13 @@
         panelWrap.classList.add("dragging");
         this.clearHideTimer();
 
-        window.addEventListener("pointermove", onDragPointerMove, { capture: true });
-        window.addEventListener("pointerup", onDragPointerUp, { capture: true });
-        window.addEventListener("pointercancel", onDragPointerUp, { capture: true });
+        window.addEventListener("pointermove", onPointerMove, { capture: true, passive: false });
+        window.addEventListener("pointerup", onPointerUp, { capture: true, passive: false });
+        window.addEventListener("pointercancel", onPointerUp, { capture: true, passive: false });
       };
 
-      const onDragPointerMove = (e) => {
+      const onPointerMove = (e) => {
         if (!isDragging) return;
-        e.preventDefault();
-        e.stopPropagation();
-        e.stopImmediatePropagation();
 
         const dx = e.clientX - startPointerX;
         const dy = e.clientY - startPointerY;
@@ -717,13 +707,15 @@
         }
 
         if (hasDragged) {
+          e.preventDefault();
+          e.stopPropagation();
+
           const containerRect = container.getBoundingClientRect();
           const hostRect = this.host.getBoundingClientRect();
 
           let newLeft = startHostLeft + dx;
           let newTop = startHostTop + dy;
 
-          // Clamping within video player boundaries with safe 8px margin
           const maxLeft = Math.max(8, containerRect.width - hostRect.width - 8);
           const maxTop = Math.max(8, containerRect.height - hostRect.height - 8);
 
@@ -732,25 +724,30 @@
 
           this.host.style.setProperty("left", `${newLeft}px`, "important");
           this.host.style.setProperty("top", `${newTop}px`, "important");
+
+          // Smart dropdown menu alignment: if close to right edge, align menu to right; if close to left, align to left
+          if (newLeft < 200) {
+            panelWrap.style.alignItems = "flex-start";
+          } else {
+            panelWrap.style.alignItems = "flex-end";
+          }
         }
       };
 
-      const onDragPointerUp = (e) => {
+      const onPointerUp = (e) => {
         if (!isDragging) return;
         isDragging = false;
         panelWrap.classList.remove("dragging");
 
-        window.removeEventListener("pointermove", onDragPointerMove, { capture: true });
-        window.removeEventListener("pointerup", onDragPointerUp, { capture: true });
-        window.removeEventListener("pointercancel", onDragPointerUp, { capture: true });
+        window.removeEventListener("pointermove", onPointerMove, { capture: true });
+        window.removeEventListener("pointerup", onPointerUp, { capture: true });
+        window.removeEventListener("pointercancel", onPointerUp, { capture: true });
 
         if (hasDragged) {
           lastDragEndTime = Date.now();
           e.preventDefault();
           e.stopPropagation();
-          e.stopImmediatePropagation();
 
-          // Save position as a percentage ratio so it adapts to video resizing / fullscreen
           const containerRect = container.getBoundingClientRect();
           const currentLeft = parseFloat(this.host.style.left) || 8;
           const currentTop = parseFloat(this.host.style.top) || 8;
@@ -763,25 +760,38 @@
         }
       };
 
-      // Bind drag to both the dedicated drag handle and the main pill container
-      dragHandle.addEventListener("pointerdown", onDragPointerDown, { capture: true });
-      pillBar.addEventListener("pointerdown", onDragPointerDown, { capture: true });
+      // Drag Handle explicitly triggers drag
+      dragHandle.addEventListener("pointerdown", (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        startDrag(e);
+      });
+
+      // Clicking empty areas of pillBar (not buttons) also starts drag
+      pillBar.addEventListener("pointerdown", (e) => {
+        const path = e.composedPath ? e.composedPath() : [e.target];
+        const isButton = path.some((el) => {
+          if (!el || !el.id) return false;
+          return el.id === "btnMain" || el.id === "btnDropdown" || el.id === "btnClose";
+        });
+        if (isButton) return; // Let button handle its own click
+        e.stopPropagation();
+        startDrag(e);
+      });
 
       // =========================================================================
-      // 3. Button Actions & Quality Dropdown
+      // 3. Interactive Buttons (Main, Dropdown, Close, Menu Items)
       // =========================================================================
-      // Main button click: download best format (ignored if user was dragging)
       btnMain.addEventListener("click", (e) => {
         e.stopPropagation();
-        e.stopImmediatePropagation();
+        e.preventDefault();
         if (Date.now() - lastDragEndTime < 250) return;
         this.triggerDownload("best");
       });
 
-      // Dropdown toggle
       btnDropdown.addEventListener("click", (e) => {
         e.stopPropagation();
-        e.stopImmediatePropagation();
+        e.preventDefault();
         if (Date.now() - lastDragEndTime < 250) return;
 
         this.isMenuOpen = !this.isMenuOpen;
@@ -793,11 +803,10 @@
         }
       });
 
-      // Menu items click
       qualityMenu.querySelectorAll(".menu-item").forEach((btn) => {
         btn.addEventListener("click", (e) => {
           e.stopPropagation();
-          e.stopImmediatePropagation();
+          e.preventDefault();
           const format = btn.getAttribute("data-format") || "best";
           this.isMenuOpen = false;
           qualityMenu.classList.remove("open");
@@ -805,15 +814,14 @@
         });
       });
 
-      // Dismiss button
       btnClose.addEventListener("click", (e) => {
         e.stopPropagation();
-        e.stopImmediatePropagation();
+        e.preventDefault();
         this.isDismissed = true;
         this.hidePanel();
       });
 
-      // Close menu if clicked outside inside document
+      // Close menu when clicking anywhere outside
       document.addEventListener("click", (e) => {
         if (this.isMenuOpen && !this.host.contains(e.target)) {
           this.isMenuOpen = false;
@@ -851,7 +859,7 @@
           `;
           itemBtn.addEventListener("click", (e) => {
             e.stopPropagation();
-            e.stopImmediatePropagation();
+            e.preventDefault();
             this.isMenuOpen = false;
             this.shadow.getElementById("qualityMenu").classList.remove("open");
             chrome.runtime.sendMessage(
