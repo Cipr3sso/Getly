@@ -14,8 +14,6 @@ from core.scheduler.categories import (
 from core.network.session_pool import MultiInterfaceSessionPool
 from core.scheduler.state_store import StateStore
 from core.scheduler.queue_manager import QueueManager
-from ui.coordinator import UICoordinator
-from ui.components.site_grabber_dialog import SiteGrabberDialog
 
 
 @pytest.fixture
@@ -112,32 +110,3 @@ async def test_site_grabber_extraction_and_classification(mock_html):
     finally:
         await runner.cleanup()
 
-
-@pytest.mark.asyncio
-async def test_site_grabber_dialog_smoke(tmp_path):
-    db_file = tmp_path / "test_dialog.db"
-    store = StateStore(db_file)
-    pool = MultiInterfaceSessionPool(max_connections_per_host=2, total_limit=4)
-    qm = QueueManager(session_pool=pool, state_store=store, default_download_dir=tmp_path)
-    coord = UICoordinator(qm, pool)
-
-    dialog = SiteGrabberDialog(coordinator=coord, initial_url="https://example.com")
-    assert dialog.url_field.value == "https://example.com"
-    assert dialog.title is not None
-    assert dialog.content is not None
-
-    # Test batch filter helper
-    dialog.discovered_items = [
-        GrabbedResource(url="https://ex.com/a.zip", filename="a.zip", category="Compressi", source_tag="a"),
-        GrabbedResource(url="https://ex.com/b.pdf", filename="b.pdf", category="Documenti", source_tag="a"),
-        GrabbedResource(url="https://ex.com/c.mp4", filename="c.mp4", category="Video", source_tag="video"),
-    ]
-    dialog._select_by_filter("ARCHIVES")
-    assert dialog.selected_urls["https://ex.com/a.zip"] is True
-    assert dialog.selected_urls["https://ex.com/b.pdf"] is False
-    assert dialog.selected_urls["https://ex.com/c.mp4"] is False
-
-    dialog._select_by_filter("ALL")
-    assert all(dialog.selected_urls.values())
-
-    await pool.close()

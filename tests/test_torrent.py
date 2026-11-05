@@ -2,10 +2,12 @@ import asyncio
 import os
 from pathlib import Path
 import tempfile
+from unittest.mock import MagicMock
 import pytest
 
 import libtorrent as lt
 
+from core.network.models import NetworkAdapter
 from core.scheduler.task import DownloadTask, DownloadStatus
 from core.scheduler.state_store import StateStore
 from core.scheduler.categories import detect_category, CATEGORY_TORRENTS, ALL_CATEGORIES
@@ -108,61 +110,6 @@ async def test_queue_manager_torrent_routing():
         assert task.status == DownloadStatus.PAUSED
 
 
-def test_download_card_torrent_ui():
-    from ui.components.download_card import DownloadCard
-    from ui.coordinator import UICoordinator
-    import flet as ft
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        store = StateStore(Path(tmpdir) / "test.db")
-        pool = MultiInterfaceSessionPool([])
-        qm = QueueManager(pool, store, Path(tmpdir))
-        coord = UICoordinator(qm, pool)
-
-        torrent_task = DownloadTask(
-            url="magnet:?xt=urn:btih:da39a3ee5e6b4b0d3255bfef95601890afd80709&dn=test.iso",
-            destination_dir=Path(tmpdir),
-            filename="test.iso",
-            task_type="TORRENT",
-            category=CATEGORY_TORRENTS,
-            seeds=12,
-            peers=30,
-            status=DownloadStatus.DOWNLOADING,
-            total_size=1073741824,
-            downloaded_bytes=536870912,
-            speed_bps=5242880.0,
-            upload_speed_bps=1048576.0,
-            pieces_total=500,
-            pieces_completed=250,
-        )
-
-        card = DownloadCard(torrent_task, coord)
-        assert card is not None
-        # Check that card content builds and contains expected layout
-        col = card.content
-        assert isinstance(col, ft.Column)
-        header_row = col.controls[0]
-        assert isinstance(header_row, ft.Row)
-
-        # Requirement 2: Verify duplicate badge elimination
-        # For a generic torrent task, there should be ONLY 2 badges (TORRENT and Status), NOT 3
-        badge_row = header_row.controls[1]
-        assert len(badge_row.controls) == 2
-
-        # When a custom category is specified, category badge is retained
-        torrent_task.category = "Video"
-        card_custom = DownloadCard(torrent_task, coord)
-        assert len(card_custom.content.controls[0].controls[1].controls) == 3
-
-        # Requirement 1: Verify completion string does not display ghost seeding / upload metrics
-        torrent_task.status = DownloadStatus.COMPLETED
-        card.update_task_state(torrent_task)
-        metrics_str = card._get_metrics_info()
-        assert "Completato con successo" in metrics_str
-        assert "Seeds:" not in metrics_str
-        assert "▲" not in metrics_str
-
-
 @pytest.mark.asyncio
 async def test_torrent_metadata_resolution_local_file():
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -184,25 +131,6 @@ async def test_torrent_metadata_resolution_local_file():
         assert any("video.mp4" in p for p in paths)
         assert any("subtitle.srt" in p for p in paths)
         assert meta.total_size >= 1048576 + 2048
-
-
-def test_torrent_dialog_initialization():
-    from ui.components.torrent_dialog import TorrentDialog
-    from ui.coordinator import UICoordinator
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        store = StateStore(Path(tmpdir) / "test.db")
-        pool = MultiInterfaceSessionPool([])
-        qm = QueueManager(pool, store, Path(tmpdir))
-        coord = UICoordinator(qm, pool)
-
-        dlg = TorrentDialog(
-            coordinator=coord,
-            source="magnet:?xt=urn:btih:da39a3ee5e6b4b0d3255bfef95601890afd80709&dn=test.iso",
-        )
-        assert dlg is not None
-        assert dlg.source.startswith("magnet:")
-        assert dlg.destination_dir.name == CATEGORY_TORRENTS
 
 
 @pytest.mark.asyncio
@@ -353,45 +281,8 @@ def test_torrent_privacy_hardened_configuration():
     assert "10.5.0.2" in outgoing_ifs
 
 
-def test_download_card_in_place_update():
-    from ui.components.download_card import DownloadCard
-    from ui.coordinator import UICoordinator
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        store = StateStore(Path(tmpdir) / "test_card.db")
-        pool = MultiInterfaceSessionPool([])
-        qm = QueueManager(pool, store, Path(tmpdir))
-        coord = UICoordinator(qm, pool)
-
-        task = DownloadTask(
-            url="https://example.com/file.zip",
-            destination_dir=Path(tmpdir),
-            filename="file.zip",
-            status=DownloadStatus.PENDING,
-            total_size=1000,
-            downloaded_bytes=0,
-        )
-
-        card = DownloadCard(task, coord)
-        assert card._last_status == DownloadStatus.PENDING
-        orig_metrics_text = card._metrics_text
-        orig_actions_row = card._actions_row
-
-        task.status = DownloadStatus.DOWNLOADING
-        task.downloaded_bytes = 500
-        card.update_task_state(task)
-
-        assert card._metrics_text is orig_metrics_text
-        assert card._actions_row is orig_actions_row
-        assert card._last_status == DownloadStatus.DOWNLOADING
-        assert "500" in (card._metrics_text.value or "")
-
-
 @pytest.mark.asyncio
-async def test_torrent_metadata_num_files_and_dialog_update():
-    from ui.components.torrent_dialog import TorrentDialog
-    from ui.coordinator import UICoordinator
-
+async def test_torrent_metadata_num_files():
     with tempfile.TemporaryDirectory() as tmpdir:
         torrent_file = Path(tmpdir) / "dialog_test.torrent"
         fs = lt.file_storage()
@@ -406,39 +297,10 @@ async def test_torrent_metadata_num_files_and_dialog_update():
         mgr = TorrentSessionManager.get_instance()
         meta = await mgr.resolve_metadata(str(torrent_file))
 
-        # 1. Verify TorrentMetadata.num_files property
+        # Verify TorrentMetadata.num_files property and files list
         assert meta.has_metadata is True
         assert meta.num_files == 3
         assert len(meta.files) == 3
-
-        # 2. Test TorrentDialog with this real metadata
-        store = StateStore(Path(tmpdir) / "test.db")
-        pool = MultiInterfaceSessionPool([])
-        qm = QueueManager(pool, store, Path(tmpdir))
-        coord = UICoordinator(qm, pool)
-
-        dlg = TorrentDialog(
-            coordinator=coord,
-            source=str(torrent_file),
-            initial_dir=Path(tmpdir),
-        )
-
-        # Run _resolve_metadata_async directly
-        await dlg._resolve_metadata_async()
-
-        # Check that UI controls updated without error
-        assert dlg._is_resolving is False
-        assert dlg.metadata is not None
-        assert dlg.metadata.num_files == 3
-        assert "3 file" in dlg.meta_summary_text.value
-        assert len(dlg.file_checkboxes) == 3
-        assert dlg.add_paused_btn.disabled is False
-        assert dlg.download_now_btn.disabled is False
-        assert "3/3" in dlg.selected_size_text.value
-
-        # Toggle one checkbox
-        dlg._on_file_toggled(0, False)
-        assert "2/3" in dlg.selected_size_text.value
 
 
 def test_torrent_session_manager_dht_and_anonymous_settings():
@@ -449,4 +311,126 @@ def test_torrent_session_manager_dht_and_anonymous_settings():
     assert "dht.transmissionbt.com" in router_hosts
     assert "router.utorrent.com" in router_hosts
     assert "dht.libtorrent.org" in router_hosts
+
+
+@pytest.mark.asyncio
+async def test_torrent_engine_files_status_and_priority(tmp_path: Path):
+    """
+    Test TorrentDownloadEngine file progress tracking, priority updates,
+    and completion status normalization.
+    """
+    task = DownloadTask(
+        url="magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12&dn=Ubuntu_ISO",
+        destination_dir=tmp_path,
+        filename="Ubuntu_ISO",
+        task_type="TORRENT",
+        info_hash="abcdef1234567890abcdef1234567890abcdef12",
+        selected_files=[0, 1],
+    )
+
+    engine = TorrentDownloadEngine(task=task)
+
+    # Mock libtorrent handle and torrent_info matching libtorrent file_storage API
+    mock_ti = MagicMock()
+    mock_ti.num_files.return_value = 2
+
+    mock_fs = MagicMock()
+    mock_fs.file_path.side_effect = lambda i: ["Ubuntu_ISO/ubuntu.iso", "Ubuntu_ISO/readme.txt"][i]
+    mock_fs.file_size.side_effect = lambda i: [1000000, 2000][i]
+    mock_fs.file_flags.return_value = 0
+    mock_ti.files.return_value = mock_fs
+
+    mock_status = MagicMock()
+    mock_status.has_metadata = True
+
+    def mock_file_priority(idx, prio=None):
+        if prio is not None:
+            return None
+        return 4 if idx in (0, 1) else 0
+
+    mock_handle = MagicMock()
+    mock_handle.is_valid.return_value = True
+    mock_handle.status.return_value = mock_status
+    mock_handle.torrent_file.return_value = mock_ti
+    mock_handle.file_progress.return_value = [500000, 2000]
+    mock_handle.file_priority.side_effect = mock_file_priority
+
+    engine.handle = mock_handle
+
+    # 1. Update file status
+    files_status = engine.update_files_status()
+    assert len(files_status) == 2
+    assert files_status[0]["index"] == 0
+    assert files_status[0]["path"] == "Ubuntu_ISO/ubuntu.iso"
+    assert files_status[0]["size"] == 1000000
+    assert files_status[0]["downloaded"] == 500000
+    assert files_status[0]["progress"] == 0.5
+    assert files_status[0]["priority"] == 4
+
+    assert files_status[1]["index"] == 1
+    assert files_status[1]["downloaded"] == 2000
+    assert files_status[1]["progress"] == 1.0
+
+    # Task files_status should be updated
+    assert task.files_status == files_status
+
+    # 2. Priority change on the fly
+    ok = engine.set_file_priority(0, 0)
+    assert ok is True
+    mock_handle.file_priority.assert_called_with(0, 0)
+    assert task.files_status[0]["priority"] == 0
+
+
+@pytest.mark.asyncio
+async def test_queue_manager_torrent_files_status_and_db(tmp_path: Path):
+    """
+    Test that QueueManager correctly exposes get_torrent_files_status and
+    set_file_priority, updating the in-memory task and persisting to SQLite.
+    """
+    store = StateStore(tmp_path / "test_tasks.db")
+    ad = NetworkAdapter(name="Wi-Fi", friendly_name="Wi-Fi", ip="192.168.1.50", is_primary=True, is_up=True)
+    pool = MultiInterfaceSessionPool(adapters=[ad])
+    await pool.initialize()
+
+    try:
+        qm = QueueManager(session_pool=pool, state_store=store, default_download_dir=tmp_path)
+
+        task = await qm.add_url(
+            url="magnet:?xt=urn:btih:1111111111111111111111111111111111111111&dn=TestTorrent",
+            destination_dir=tmp_path,
+            filename="TestTorrent",
+            task_type="TORRENT",
+            info_hash="1111111111111111111111111111111111111111",
+            start_paused=True,
+        )
+
+        # Initially files_status may be None
+        assert qm.get_torrent_files_status(task.task_id) == []
+
+        # Manually assign files_status simulating resolution or initial load
+        initial_files = [
+            {"index": 0, "path": "TestTorrent/fileA.bin", "size": 5000, "downloaded": 0, "progress": 0.0, "priority": 4},
+            {"index": 1, "path": "TestTorrent/fileB.bin", "size": 10000, "downloaded": 0, "progress": 0.0, "priority": 1},
+        ]
+        task.files_status = initial_files
+        store.save_task(task)
+
+        # QueueManager should retrieve files_status
+        st = qm.get_torrent_files_status(task.task_id)
+        assert len(st) == 2
+        assert st[0]["path"] == "TestTorrent/fileA.bin"
+
+        # Set file priority via QueueManager
+        qm.set_file_priority(task.task_id, 0, 0)
+        st_updated = qm.get_torrent_files_status(task.task_id)
+        assert st_updated[0]["priority"] == 0
+
+        # Verify SQLite persistence
+        loaded = store.get_task(task.task_id)
+        assert loaded is not None
+        assert loaded.files_status is not None
+        assert loaded.files_status[0]["priority"] == 0
+    finally:
+        await pool.close()
+
 

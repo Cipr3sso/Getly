@@ -67,23 +67,3 @@ async def test_speed_limiter_concurrent_acquire():
     elapsed = time.monotonic() - t0
     assert elapsed >= 0.5, f"Concurrent workers completed too fast: {elapsed:.3f}s"
 
-
-@pytest.mark.asyncio
-async def test_coordinator_speed_limiter_integration(tmp_path):
-    from ui.coordinator import UICoordinator
-    from core.scheduler.queue_manager import QueueManager
-    from core.scheduler.state_store import StateStore
-    from core.network.session_pool import MultiInterfaceSessionPool
-
-    pool = MultiInterfaceSessionPool(adapters=[])
-    store = StateStore(tmp_path / "test.db")
-    qm = QueueManager(session_pool=pool, state_store=store, default_download_dir=tmp_path)
-    coord = UICoordinator(queue_manager=qm, session_pool=pool)
-
-    coord.set_download_limit(SPEED_LIMIT_1_MB)
-    assert coord.get_download_limit() == SPEED_LIMIT_1_MB
-    assert SpeedLimiter.get_instance().get_limit() == SPEED_LIMIT_1_MB
-
-    coord.set_download_limit(SPEED_LIMIT_UNLIMITED)
-    assert coord.get_download_limit() == 0
-    assert SpeedLimiter.get_instance().get_limit() == 0

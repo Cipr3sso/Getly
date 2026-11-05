@@ -140,33 +140,3 @@ async def test_queue_manager_category_auto_routing(tmp_path):
 
     await pool.close()
 
-
-def test_add_download_dialog_category_and_folder_sync(tmp_path):
-    from ui.components.add_download_dialog import AddDownloadDialog
-    from ui.coordinator import UICoordinator
-
-    store = StateStore(tmp_path / "test_dialog_sync.db")
-    pool = MultiInterfaceSessionPool(max_connections_per_host=2, total_limit=4)
-    base_dir = tmp_path / "Downloads"
-    qm = QueueManager(session_pool=pool, state_store=store, default_download_dir=base_dir)
-    coord = UICoordinator(queue_manager=qm, session_pool=pool)
-
-    # Initial dialog with prefilled zip url
-    dlg = AddDownloadDialog(
-        coordinator=coord,
-        prefill_url="https://example.com/software.zip",
-    )
-    assert dlg.current_category == CATEGORY_COMPRESSED
-    assert dlg.category_dropdown.value == CATEGORY_COMPRESSED
-    assert dlg.dir_field.value == str(base_dir / "Compressi")
-    assert dlg.filename_field.value == "software.zip"
-
-    # User changes category to Video
-    dlg.category_dropdown.value = CATEGORY_VIDEO
-    class FakeEvent:
-        control = dlg.category_dropdown
-        page = None
-    dlg._on_category_changed(FakeEvent())
-
-    assert dlg.current_category == CATEGORY_VIDEO
-    assert dlg.dir_field.value == str(base_dir / "Video")

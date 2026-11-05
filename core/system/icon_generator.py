@@ -55,6 +55,7 @@ def process_custom_logo(custom_logo_path: Path, target_size: int = 256) -> Image
 def find_custom_logo_path() -> Optional[Path]:
     """Finds custom_logo.png in project assets or bundle directories."""
     candidates = [
+        Path(__file__).resolve().parent.parent.parent / "assets" / "custom_logo.png",
         Path(__file__).resolve().parent.parent / "assets" / "custom_logo.png",
         get_bundle_dir() / "assets" / "custom_logo.png",
         get_app_data_dir() / "assets" / "custom_logo.png",

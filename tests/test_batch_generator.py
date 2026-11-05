@@ -1,7 +1,5 @@
 import pytest
 from core.scheduler.batch import generate_batch_urls
-from ui.components.batch_dialog import BatchDownloadDialog
-from ui.coordinator import UICoordinator
 from core.scheduler.queue_manager import QueueManager
 from core.scheduler.state_store import StateStore
 from core.scheduler.task import DownloadTask, DownloadStatus
@@ -66,28 +64,6 @@ def test_batch_generator_max_limit():
     assert len(urls) == 10
     assert urls[0] == "https://example.com/num_1.dat"
     assert urls[-1] == "https://example.com/num_10.dat"
-
-
-def test_batch_dialog_preview_and_interaction(tmp_path):
-    from core.network.session_pool import MultiInterfaceSessionPool
-    pool = MultiInterfaceSessionPool(adapters=[])
-    store = StateStore(tmp_path / "test_state.db")
-    qm = QueueManager(session_pool=pool, state_store=store, default_download_dir=tmp_path)
-    coordinator = UICoordinator(queue_manager=qm, session_pool=pool)
-    dialog = BatchDownloadDialog(coordinator=coordinator)
-
-    # Initial state
-    assert dialog.btn_add_all.disabled is True
-
-    # Simulate entering a pattern
-    dialog.pattern_input.value = "https://server.com/img_[001-005].jpg"
-    dialog._on_pattern_change(None)
-
-    assert dialog.btn_add_all.disabled is False
-    assert "5" in dialog.btn_add_all.content
-    assert len(dialog.preview_urls_column.controls) == 5
-    assert "img_001.jpg" in dialog.preview_urls_column.controls[0].value
-    assert "img_005.jpg" in dialog.preview_urls_column.controls[-1].value
 
 
 @pytest.mark.asyncio

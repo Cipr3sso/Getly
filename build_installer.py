@@ -14,7 +14,7 @@ import subprocess
 import sys
 import zipfile
 
-from ui.icon_generator import ensure_app_icons
+from core.system.icon_generator import ensure_app_icons
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 DIST_DIR = PROJECT_ROOT / "dist"

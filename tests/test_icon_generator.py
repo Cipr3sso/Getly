@@ -2,7 +2,7 @@ from pathlib import Path
 from PIL import Image
 import pytest
 
-from ui.icon_generator import (
+from core.system.icon_generator import (
     create_rocket_icon,
     get_rocket_icon_image,
     ensure_app_icons,
