@@ -210,22 +210,25 @@
 
     render() {
       const styles = `
-        @import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600;700&display=swap');
+        * {
+          box-sizing: border-box;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI Variable Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+        }
 
         :host {
           all: initial;
           display: block !important;
           position: absolute !important;
           z-index: 2147483647 !important;
-          font-family: 'Google Sans', 'Google Sans Text', "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI Variable Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
           user-select: none;
           -webkit-user-select: none;
           pointer-events: auto !important;
           isolation: isolate !important;
         }
 
-        button, input, select, textarea, span, div {
-          font-family: inherit;
+        .panel-wrap, .pill, .menu, .menu-item, .btn-main, .btn-dropdown, .btn-close, button, input, select, textarea, span, div {
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI Variable Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
         }
 
         .panel-wrap {
