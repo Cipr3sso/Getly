@@ -77,6 +77,19 @@ public partial class TaskItemViewModel : ObservableObject
 
     public bool IsNotDeleted => !IsDeleted;
 
+    public bool CanPauseOrResume => !IsDeleted && !IsCompleted;
+
+    partial void OnIsCompletedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanPauseOrResume));
+    }
+
+    partial void OnIsDeletedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(IsNotDeleted));
+        OnPropertyChanged(nameof(CanPauseOrResume));
+    }
+
     [ObservableProperty]
     private bool _isSelected;
 
@@ -248,6 +261,7 @@ public partial class TaskItemViewModel : ObservableObject
         }
         IsDeleted = string.Equals(dto.Status, "DELETED", StringComparison.OrdinalIgnoreCase);
         OnPropertyChanged(nameof(IsNotDeleted));
+        OnPropertyChanged(nameof(CanPauseOrResume));
         OnPropertyChanged(nameof(CategoryBackground));
         OnPropertyChanged(nameof(SizeMbFormatted));
     }

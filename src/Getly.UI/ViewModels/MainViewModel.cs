@@ -729,9 +729,29 @@ public partial class MainViewModel : ObservableObject
         if (target is null) return;
 
         string file = Path.Combine(target.DestinationDir, target.Filename);
-        if (File.Exists(file))
+        try
         {
-            Process.Start(new ProcessStartInfo(file) { UseShellExecute = true });
+            if (File.Exists(file))
+            {
+                Process.Start(new ProcessStartInfo(file) { UseShellExecute = true });
+            }
+            else if (Directory.Exists(file))
+            {
+                Process.Start(new ProcessStartInfo("explorer.exe", $"\"{file}\"") { UseShellExecute = true });
+            }
+            else if (Directory.Exists(target.DestinationDir))
+            {
+                StatusMessage = $"File non trovato su disco: {target.Filename}. Apertura cartella...";
+                Process.Start(new ProcessStartInfo("explorer.exe", $"\"{target.DestinationDir}\"") { UseShellExecute = true });
+            }
+            else
+            {
+                StatusMessage = $"File non trovato: {target.Filename}";
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Errore nell'apertura di {target.Filename}: {ex.Message}";
         }
     }
 

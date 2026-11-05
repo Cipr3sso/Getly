@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600;700&display=swap');
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -5,12 +7,16 @@
   user-select: none;
 }
 
+button, input, select, textarea {
+  font-family: inherit;
+}
+
 body {
   width: 360px;
   max-height: 560px;
   background-color: #18181b;
   color: #f4f4f5;
-  font-family: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+  font-family: 'Google Sans', 'Google Sans Text', "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
   font-size: 13px;
   line-height: 1.4;
   overflow-x: hidden;

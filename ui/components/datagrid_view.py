@@ -362,7 +362,11 @@ class DownloadDataGrid(ft.Container):
         )
 
         return ft.GestureDetector(
-            on_double_tap=lambda e, t=task: self._handle_open_details(t),
+            on_double_tap=lambda e, t=task: (
+                self.coordinator.open_file(t)
+                if t.status == DownloadStatus.COMPLETED
+                else self._handle_open_details(t)
+            ),
             on_secondary_tap=lambda e, t=task: self._handle_secondary_tap(t),
             content=context_menu,
         )
@@ -370,23 +374,24 @@ class DownloadDataGrid(ft.Container):
     def _build_context_items(self, task: DownloadTask) -> list[ft.PopupMenuItem]:
         items: list[ft.PopupMenuItem] = []
 
-        # 1. Avvia / Pausa
-        if task.status == DownloadStatus.DOWNLOADING:
-            items.append(
-                ft.PopupMenuItem(
-                    content="Metti in Pausa",
-                    icon=ft.Icons.PAUSE_ROUNDED,
-                    on_click=lambda e, tid=task.task_id: self._handle_pause(tid),
+        # 1. Avvia / Pausa (nascosto se il download è completato)
+        if task.status != DownloadStatus.COMPLETED:
+            if task.status == DownloadStatus.DOWNLOADING:
+                items.append(
+                    ft.PopupMenuItem(
+                        content="Metti in Pausa",
+                        icon=ft.Icons.PAUSE_ROUNDED,
+                        on_click=lambda e, tid=task.task_id: self._handle_pause(tid),
+                    )
                 )
-            )
-        else:
-            items.append(
-                ft.PopupMenuItem(
-                    content="Avvia Download",
-                    icon=ft.Icons.PLAY_ARROW_ROUNDED,
-                    on_click=lambda e, tid=task.task_id: self._handle_resume(tid),
+            else:
+                items.append(
+                    ft.PopupMenuItem(
+                        content="Avvia Download",
+                        icon=ft.Icons.PLAY_ARROW_ROUNDED,
+                        on_click=lambda e, tid=task.task_id: self._handle_resume(tid),
+                    )
                 )
-            )
 
         # 2. Apri cartella contenitrice
         items.append(

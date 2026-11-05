@@ -713,6 +713,15 @@ public sealed partial class MainWindow : Window
         var task = GetTask(sender) ?? ViewModel.SelectedTask;
         if (task == null) return;
 
+        if (task.IsCompleted)
+        {
+            if (ViewModel.OpenFileCommand.CanExecute(task))
+            {
+                ViewModel.OpenFileCommand.Execute(task);
+            }
+            return;
+        }
+
         _ = ShowTaskDetailsDialogAsync(task);
     }
 
@@ -1088,6 +1097,8 @@ public sealed partial class MainWindow : Window
         if (_isDialogOpen) return;
         _isDialogOpen = true;
 
+        DispatcherTimer? liveTimer = null;
+
         try
         {
             bool isDark = (this.Content as FrameworkElement)?.ActualTheme == ElementTheme.Dark;
@@ -1116,6 +1127,17 @@ public sealed partial class MainWindow : Window
                 }
             };
 
+            var iconFont = new FontIcon
+            {
+                Glyph = isTorrent ? "\uE753" : task.StatusIconGlyph,
+                FontSize = 18,
+                Foreground = isTorrent
+                    ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 168, 85, 247))
+                    : new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 59, 130, 246)),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
             var iconBorder = new Border
             {
                 Width = 42,
@@ -1125,16 +1147,7 @@ public sealed partial class MainWindow : Window
                     ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(35, 139, 92, 246))
                     : new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(35, 59, 130, 246)),
                 Margin = new Thickness(0, 0, 12, 0),
-                Child = new FontIcon
-                {
-                    Glyph = isTorrent ? "\uE753" : task.StatusIconGlyph,
-                    FontSize = 18,
-                    Foreground = isTorrent
-                        ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 168, 85, 247))
-                        : new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 59, 130, 246)),
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center
-                }
+                Child = iconFont
             };
             Grid.SetColumn(iconBorder, 0);
             headerLayout.Children.Add(iconBorder);
@@ -1157,51 +1170,54 @@ public sealed partial class MainWindow : Window
             var badgeRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
 
             // Category Pill
+            var catTextBlock = new TextBlock
+            {
+                Text = task.Category,
+                FontSize = 11,
+                FontWeight = Microsoft.UI.Text.FontWeights.Medium,
+                Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 168, 85, 247))
+            };
             var catBorder = new Border
             {
                 Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(30, 139, 92, 246)),
                 CornerRadius = new CornerRadius(4),
                 Padding = new Thickness(7, 2, 7, 2),
-                Child = new TextBlock
-                {
-                    Text = task.Category,
-                    FontSize = 11,
-                    FontWeight = Microsoft.UI.Text.FontWeights.Medium,
-                    Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 168, 85, 247))
-                }
+                Child = catTextBlock
             };
             badgeRow.Children.Add(catBorder);
 
             // Status Pill
             var statusBrush = TryParseColorBrush(task.StatusColor, Windows.UI.Color.FromArgb(255, 59, 130, 246));
+            var statusTextBlock = new TextBlock
+            {
+                Text = task.StatusDisplay,
+                FontSize = 11,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Foreground = statusBrush
+            };
             var statusBorder = new Border
             {
                 Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(30, statusBrush.Color.R, statusBrush.Color.G, statusBrush.Color.B)),
                 CornerRadius = new CornerRadius(4),
                 Padding = new Thickness(7, 2, 7, 2),
-                Child = new TextBlock
-                {
-                    Text = task.StatusDisplay,
-                    FontSize = 11,
-                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                    Foreground = statusBrush
-                }
+                Child = statusTextBlock
             };
             badgeRow.Children.Add(statusBorder);
 
             // Percentage badge
+            var progTextBlock = new TextBlock
+            {
+                Text = task.ProgressPercentageFormatted,
+                FontSize = 11,
+                FontWeight = Microsoft.UI.Text.FontWeights.Medium,
+                Foreground = GetThemeSecondaryBrush()
+            };
             var progBorder = new Border
             {
                 Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(25, 255, 255, 255)),
                 CornerRadius = new CornerRadius(4),
                 Padding = new Thickness(7, 2, 7, 2),
-                Child = new TextBlock
-                {
-                    Text = task.ProgressPercentageFormatted,
-                    FontSize = 11,
-                    FontWeight = Microsoft.UI.Text.FontWeights.Medium,
-                    Foreground = GetThemeSecondaryBrush()
-                }
+                Child = progTextBlock
             };
             badgeRow.Children.Add(progBorder);
 
@@ -1211,81 +1227,80 @@ public sealed partial class MainWindow : Window
             headerCard.Child = headerLayout;
             contentPanel.Children.Add(headerCard);
 
-            // 2. Error / Warning Alert Card (if applicable)
-            if (task.IsError || string.Equals(task.Status, "Error", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrWhiteSpace(task.ErrorMessage))
+            // 2. Error / Warning Alert Card (dynamic visibility)
+            bool isInitialError = task.IsError || string.Equals(task.Status, "Error", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrWhiteSpace(task.ErrorMessage);
+            var errCard = new Border
             {
-                var errCard = new Border
-                {
-                    Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(25, 239, 68, 68)),
-                    BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(120, 239, 68, 68)),
-                    BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(8),
-                    Padding = new Thickness(12, 10, 12, 10)
-                };
+                Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(25, 239, 68, 68)),
+                BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(120, 239, 68, 68)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(12, 10, 12, 10),
+                Visibility = isInitialError ? Visibility.Visible : Visibility.Collapsed
+            };
 
-                var errStack = new StackPanel { Spacing = 6 };
-                var errHeader = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-                errHeader.Children.Add(new FontIcon { Glyph = "\uEB90", FontSize = 13, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 239, 68, 68)) });
-                errHeader.Children.Add(new TextBlock
-                {
-                    Text = "Stato / Dettagli Errore",
-                    FontSize = 12,
-                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                    Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 239, 68, 68))
-                });
-                errStack.Children.Add(errHeader);
+            var errStack = new StackPanel { Spacing = 6 };
+            var errHeader = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+            errHeader.Children.Add(new FontIcon { Glyph = "\uEB90", FontSize = 13, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 239, 68, 68)) });
+            errHeader.Children.Add(new TextBlock
+            {
+                Text = "Stato / Dettagli Errore",
+                FontSize = 12,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 239, 68, 68))
+            });
+            errStack.Children.Add(errHeader);
 
-                var errText = new TextBlock
-                {
-                    Text = !string.IsNullOrWhiteSpace(task.ErrorMessage) ? task.ErrorMessage : "Errore non specificato durante il download",
-                    FontSize = 11,
-                    TextWrapping = TextWrapping.Wrap,
-                    Foreground = isDark
-                        ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 252, 165, 165))
-                        : new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 185, 28, 28))
-                };
-                errStack.Children.Add(errText);
+            var errText = new TextBlock
+            {
+                Text = !string.IsNullOrWhiteSpace(task.ErrorMessage) ? task.ErrorMessage : "Errore non specificato durante il download",
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = isDark
+                    ? new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 252, 165, 165))
+                    : new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 185, 28, 28))
+            };
+            errStack.Children.Add(errText);
 
-                if (task.IsCloudflareError)
+            if (task.IsCloudflareError)
+            {
+                var solveBtn = new Button
                 {
-                    var solveBtn = new Button
+                    Content = new StackPanel
                     {
-                        Content = new StackPanel
+                        Orientation = Orientation.Horizontal,
+                        Spacing = 6,
+                        Children =
                         {
-                            Orientation = Orientation.Horizontal,
-                            Spacing = 6,
-                            Children =
-                            {
-                                new FontIcon { Glyph = "\uE727", FontSize = 12, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 245, 158, 11)) },
-                                new TextBlock { Text = "Risolvi verifica Cloudflare nel browser", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 245, 158, 11)) }
-                            }
-                        },
-                        Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(30, 245, 158, 11)),
-                        BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(120, 245, 158, 11)),
-                        BorderThickness = new Thickness(1),
-                        CornerRadius = new CornerRadius(4),
-                        Margin = new Thickness(0, 4, 0, 0),
-                        HorizontalAlignment = HorizontalAlignment.Left
-                    };
-                    solveBtn.Click += (s, args) =>
-                    {
-                        try
-                        {
-                            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                            {
-                                FileName = task.Url,
-                                UseShellExecute = true
-                            });
-                            ViewModel.StatusMessage = $"Aperto nel browser: risolvi la verifica per {task.Filename}";
+                            new FontIcon { Glyph = "\uE727", FontSize = 12, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 245, 158, 11)) },
+                            new TextBlock { Text = "Risolvi verifica Cloudflare nel browser", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 245, 158, 11)) }
                         }
-                        catch { }
-                    };
-                    errStack.Children.Add(solveBtn);
-                }
-
-                errCard.Child = errStack;
-                contentPanel.Children.Add(errCard);
+                    },
+                    Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(30, 245, 158, 11)),
+                    BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(120, 245, 158, 11)),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(4),
+                    Margin = new Thickness(0, 4, 0, 0),
+                    HorizontalAlignment = HorizontalAlignment.Left
+                };
+                solveBtn.Click += (s, args) =>
+                {
+                    try
+                    {
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = task.Url,
+                            UseShellExecute = true
+                        });
+                        ViewModel.StatusMessage = $"Aperto nel browser: risolvi la verifica per {task.Filename}";
+                    }
+                    catch { }
+                };
+                errStack.Children.Add(solveBtn);
             }
+
+            errCard.Child = errStack;
+            contentPanel.Children.Add(errCard);
 
             // 3. Compact URL / Magnet Card with Copy button
             var urlCard = new Border
@@ -1388,7 +1403,7 @@ public sealed partial class MainWindow : Window
                 }
             };
 
-            void AddMetric(string label, string val, int col, int row, string? subval = null)
+            (TextBlock ValBlock, TextBlock? SubvalBlock) AddMetric(string label, string val, int col, int row, string? subval = null)
             {
                 var sp = new StackPanel { Spacing = 2 };
                 sp.Children.Add(new TextBlock
@@ -1398,47 +1413,55 @@ public sealed partial class MainWindow : Window
                     FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                     Foreground = GetThemeSecondaryBrush()
                 });
-                sp.Children.Add(new TextBlock
+                var valBlock = new TextBlock
                 {
                     Text = val,
                     FontSize = 13,
                     FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                     Foreground = GetThemePrimaryBrush()
-                });
+                };
+                sp.Children.Add(valBlock);
+                TextBlock? subvalBlock = null;
                 if (!string.IsNullOrEmpty(subval))
                 {
-                    sp.Children.Add(new TextBlock
+                    subvalBlock = new TextBlock
                     {
                         Text = subval,
                         FontSize = 10,
                         Foreground = GetThemeSecondaryBrush()
-                    });
+                    };
+                    sp.Children.Add(subvalBlock);
                 }
                 Grid.SetColumn(sp, col);
                 Grid.SetRow(sp, row);
                 metricsGrid.Children.Add(sp);
+                return (valBlock, subvalBlock);
             }
 
             // Col 0, Row 0: Dimensioni
-            AddMetric("Dimensioni", task.DownloadedFormatted, 0, 0);
+            var (dimValBlock, _) = AddMetric("Dimensioni", task.DownloadedFormatted, 0, 0);
 
             // Col 1, Row 0: Velocità
             string speedText = task.IsTorrent && task.UploadSpeedBps > 0
                 ? $"⬇ {task.SpeedFormatted}  ⬆ {TaskItemViewModel.FormatSpeed(task.UploadSpeedBps)}"
                 : task.SpeedFormatted;
-            AddMetric("Velocità Corrente", speedText, 1, 0);
+            var (speedValBlock, _) = AddMetric("Velocità Corrente", speedText, 1, 0);
 
             // Col 0, Row 1: Tempo Stimato (ETA)
-            AddMetric("Tempo Rimanente (ETA)", task.EtaFormatted, 0, 1);
+            var (etaValBlock, _) = AddMetric("Tempo Rimanente (ETA)", task.EtaFormatted, 0, 1);
 
             // Col 1, Row 1: Parti / Peer (if Torrent) or Categoria
+            TextBlock? valBlockParts = null;
+            TextBlock? subvalBlockPeers = null;
             if (isTorrent)
             {
                 string partsInfo = task.PiecesTotal > 0
                     ? $"{task.PiecesCompleted} / {task.PiecesTotal} parti"
                     : "In risoluzione...";
                 string peerInfo = $"({task.Seeds} Seed, {task.Peers} Peer connessi)";
-                AddMetric("Parti & Peer Torrent", partsInfo, 1, 1, peerInfo);
+                var res = AddMetric("Parti & Peer Torrent", partsInfo, 1, 1, peerInfo);
+                valBlockParts = res.ValBlock;
+                subvalBlockPeers = res.SubvalBlock;
             }
             else
             {
@@ -1523,6 +1546,7 @@ public sealed partial class MainWindow : Window
             contentPanel.Children.Add(destCard);
 
             // 6. Torrent / P2P Files & Parts Table
+            var fileRowBindings = new System.Collections.Generic.Dictionary<int, (TextBlock dlBlock, ProgressBar pBar, TextBlock pText)>();
             if (isTorrent)
             {
                 var files = task.Files;
@@ -1649,6 +1673,7 @@ public sealed partial class MainWindow : Window
                         Grid.SetColumn(progPanel, 3);
                         rowGrid.Children.Add(progPanel);
 
+                        fileRowBindings[f.Index] = (dlBlock, pBar, pText);
                         filesStack.Children.Add(rowGrid);
                     }
 
@@ -1694,6 +1719,74 @@ public sealed partial class MainWindow : Window
                 }
             }
 
+            // 7. Live real-time update timer while dialog is open (200 ms tick)
+            liveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+            liveTimer.Tick += (s, e) =>
+            {
+                if (!_isDialogOpen)
+                {
+                    liveTimer?.Stop();
+                    return;
+                }
+
+                // Update Header
+                titleBlock.Text = task.Filename;
+                catTextBlock.Text = task.Category;
+                progTextBlock.Text = task.ProgressPercentageFormatted;
+
+                // Update Status Pill
+                statusTextBlock.Text = task.StatusDisplay;
+                var currentStatusBrush = TryParseColorBrush(task.StatusColor, Windows.UI.Color.FromArgb(255, 59, 130, 246));
+                statusTextBlock.Foreground = currentStatusBrush;
+                statusBorder.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                    Windows.UI.Color.FromArgb(30, currentStatusBrush.Color.R, currentStatusBrush.Color.G, currentStatusBrush.Color.B));
+
+                if (!isTorrent)
+                {
+                    iconFont.Glyph = task.StatusIconGlyph;
+                }
+
+                // Update Error Card if status changed
+                bool curError = task.IsError || string.Equals(task.Status, "Error", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrWhiteSpace(task.ErrorMessage);
+                errCard.Visibility = curError ? Visibility.Visible : Visibility.Collapsed;
+                if (curError && !string.IsNullOrWhiteSpace(task.ErrorMessage))
+                {
+                    errText.Text = task.ErrorMessage;
+                }
+
+                // Update Metrics
+                dimValBlock.Text = task.DownloadedFormatted;
+
+                string curSpeed = task.IsTorrent && task.UploadSpeedBps > 0
+                    ? $"⬇ {task.SpeedFormatted}  ⬆ {TaskItemViewModel.FormatSpeed(task.UploadSpeedBps)}"
+                    : task.SpeedFormatted;
+                speedValBlock.Text = curSpeed;
+
+                etaValBlock.Text = task.EtaFormatted;
+
+                if (isTorrent && valBlockParts != null && subvalBlockPeers != null)
+                {
+                    valBlockParts.Text = task.PiecesTotal > 0
+                        ? $"{task.PiecesCompleted} / {task.PiecesTotal} parti"
+                        : "In risoluzione...";
+                    subvalBlockPeers.Text = $"({task.Seeds} Seed, {task.Peers} Peer connessi)";
+                }
+
+                // Update Torrent File Rows if active
+                if (isTorrent && task.Files != null && fileRowBindings.Count > 0)
+                {
+                    foreach (var f in task.Files)
+                    {
+                        if (fileRowBindings.TryGetValue(f.Index, out var binding))
+                        {
+                            binding.dlBlock.Text = TaskItemViewModel.FormatBytes(f.Downloaded);
+                            binding.pBar.Value = Math.Clamp(f.Progress * 100.0, 0.0, 100.0);
+                            binding.pText.Text = $"{f.Progress * 100.0:0.#}%";
+                        }
+                    }
+                }
+            };
+
             var dialog = new ContentDialog
             {
                 Title = isTorrent ? "Dettagli del Download (Torrent / P2P)" : "Dettagli del Download",
@@ -1707,10 +1800,17 @@ public sealed partial class MainWindow : Window
             };
             PrepareDialog(dialog);
 
+            dialog.Closed += (s, e) =>
+            {
+                liveTimer?.Stop();
+            };
+
+            liveTimer.Start();
             await dialog.ShowAsync();
         }
         finally
         {
+            liveTimer?.Stop();
             _isDialogOpen = false;
         }
     }

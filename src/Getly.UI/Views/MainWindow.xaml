@@ -223,10 +223,10 @@
                                         <MenuFlyout>
                                             <MenuFlyoutItem Text="Ripristina download" Icon="Undo" Click="OnRestoreTaskClick" Visibility="{x:Bind IsDeleted, Mode=OneWay}" />
                                             <MenuFlyoutItem Text="Elimina definitivamente" Icon="Delete" Click="OnPermanentDeleteClick" Visibility="{x:Bind IsDeleted, Mode=OneWay}" />
-                                            <MenuFlyoutItem Text="Avvia / Riprendi" Icon="Play" Click="OnResumeTaskClick" Visibility="{x:Bind IsNotDeleted, Mode=OneWay}" />
-                                            <MenuFlyoutItem Text="Pausa" Icon="Pause" Click="OnPauseTaskClick" Visibility="{x:Bind IsNotDeleted, Mode=OneWay}" />
+                                            <MenuFlyoutItem Text="Avvia / Riprendi" Icon="Play" Click="OnResumeTaskClick" Visibility="{x:Bind CanPauseOrResume, Mode=OneWay}" />
+                                            <MenuFlyoutItem Text="Pausa" Icon="Pause" Click="OnPauseTaskClick" Visibility="{x:Bind CanPauseOrResume, Mode=OneWay}" />
                                             <MenuFlyoutItem Text="Risolvi verifica nel browser" Icon="Globe" Visibility="{x:Bind IsCloudflareError, Mode=OneWay}" Click="OnSolveCloudflareClick" />
-                                            <MenuFlyoutSeparator Visibility="{x:Bind IsNotDeleted, Mode=OneWay}" />
+                                            <MenuFlyoutSeparator Visibility="{x:Bind CanPauseOrResume, Mode=OneWay}" />
                                             <MenuFlyoutItem Text="Apri nella finestra mini" Icon="OpenWith" Click="OnShowFloatingWindowClick" Visibility="{x:Bind IsNotDeleted, Mode=OneWay}" />
                                             <MenuFlyoutItem Text="Dettagli del download" Icon="Document" Click="OnShowDetailsClick" />
                                             <MenuFlyoutItem Text="Mostra nella cartella" Icon="Folder" Click="OnOpenFolderClick" />

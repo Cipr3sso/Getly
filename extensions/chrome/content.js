@@ -210,16 +210,22 @@
 
     render() {
       const styles = `
+        @import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600;700&display=swap');
+
         :host {
           all: initial;
           display: block !important;
           position: absolute !important;
           z-index: 2147483647 !important;
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+          font-family: 'Google Sans', 'Google Sans Text', "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
           user-select: none;
           -webkit-user-select: none;
           pointer-events: auto !important;
           isolation: isolate !important;
+        }
+
+        button, input, select, textarea, span, div {
+          font-family: inherit;
         }
 
         .panel-wrap {
