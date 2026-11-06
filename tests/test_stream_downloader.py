@@ -156,6 +156,46 @@ async def test_stream_downloader_progress_hooks_and_completion(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_stream_downloader_audio_postprocessor(tmp_path: Path):
+    dest_dir = tmp_path / "Audio"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    task = DownloadTask(
+        url="https://soundcloud.com/artist/song-title",
+        filename="song-title.mp3",
+        destination_dir=str(dest_dir),
+        category="Audio",
+        custom_format="bestaudio/best",
+    )
+
+    engine = StreamDownloadEngine(
+        task=task,
+        destination_dir=dest_dir,
+        custom_format="bestaudio/best",
+    )
+
+    # Simulate completed mp3 file
+    mock_file = dest_dir / "song-title.mp3"
+    mock_file.write_bytes(b"mp3data" * 500)
+
+    with patch("yt_dlp.YoutubeDL") as MockYDL:
+        instance = MockYDL.return_value.__enter__.return_value
+        instance.extract_info.return_value = {"title": "song-title"}
+        instance.download.return_value = 0
+
+        success = await engine.start()
+        assert success is True
+        assert engine.target_filepath.name == "song-title.mp3"
+        assert engine._total_downloaded == len(b"mp3data" * 500)
+
+        # Verify ydl_opts passed to YoutubeDL used FFmpegExtractAudio postprocessor
+        call_args = MockYDL.call_args[0][0]
+        assert "postprocessors" in call_args
+        assert call_args["postprocessors"][0]["key"] == "FFmpegExtractAudio"
+        assert call_args["postprocessors"][0]["preferredcodec"] == "mp3"
+        assert "merge_output_format" not in call_args
+
+
+@pytest.mark.asyncio
 async def test_stream_downloader_cancellation(tmp_path: Path):
     dest_dir = tmp_path / "Video"
     task = DownloadTask(

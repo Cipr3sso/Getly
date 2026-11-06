@@ -144,18 +144,38 @@
   function extractMediaTitle(media, mediaType) {
     // 1. SoundCloud specific title & artist (Bottom bar and Track Page)
     if (window.location.hostname.includes("soundcloud.com")) {
+      const cleanScText = (el) => {
+        if (!el) return "";
+        let t = el.getAttribute("title") || "";
+        if (!t.trim()) {
+          const clone = el.cloneNode(true);
+          clone.querySelectorAll(".sc-visuallyhidden").forEach((n) => n.remove());
+          t = clone.textContent.trim();
+        }
+        t = t.replace(/^Current track:\s*/i, "").replace(/^Current track_\s*/i, "").trim();
+        const half = Math.floor(t.length / 2);
+        if (half > 3 && t.slice(0, half) === t.slice(half)) {
+          t = t.slice(0, half).trim();
+        }
+        return t;
+      };
+
       const bottomTitle = document.querySelector(".playbackSoundBadge__titleLink, a.playbackSoundBadge__title");
       const bottomArtist = document.querySelector(".playbackSoundBadge__lightLink, a.playbackSoundBadge__username");
-      if (bottomTitle && bottomTitle.textContent.trim()) {
-        const artist = bottomArtist && bottomArtist.textContent.trim() ? `${bottomArtist.textContent.trim()} - ` : "";
-        return `${artist}${bottomTitle.textContent.trim()}`;
+      const trackName = cleanScText(bottomTitle);
+      if (trackName) {
+        const artistName = cleanScText(bottomArtist);
+        const artistPrefix = artistName ? `${artistName} - ` : "";
+        return `${artistPrefix}${trackName}`;
       }
 
       const heroTitle = document.querySelector(".soundTitle__title span, h1.soundTitle__title");
       const heroArtist = document.querySelector(".soundTitle__username");
-      if (heroTitle && heroTitle.textContent.trim()) {
-        const artist = heroArtist && heroArtist.textContent.trim() ? `${heroArtist.textContent.trim()} - ` : "";
-        return `${artist}${heroTitle.textContent.trim()}`;
+      const heroTrack = cleanScText(heroTitle);
+      if (heroTrack) {
+        const heroArt = cleanScText(heroArtist);
+        const artistPrefix = heroArt ? `${heroArt} - ` : "";
+        return `${artistPrefix}${heroTrack}`;
       }
     }
 
@@ -236,7 +256,7 @@
     if (window.location.hostname.includes("soundcloud.com")) {
       const scLink = document.querySelector(".playbackSoundBadge__titleLink, a.playbackSoundBadge__title");
       if (scLink && scLink.href && scLink.href.startsWith("http")) {
-        return scLink.href;
+        return scLink.href.split("?")[0];
       }
     }
 

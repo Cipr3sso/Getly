@@ -391,7 +391,10 @@ class QueueManager:
         if is_media_stream_url(clean_url):
             task_type = "STREAM"
             if not category:
-                category = "Video"
+                if (custom_format and "bestaudio" in custom_format) or (clean_filename and clean_filename.lower().endswith((".mp3", ".m4a", ".flac", ".ogg", ".opus", ".wav", ".aac"))):
+                    category = "Audio"
+                else:
+                    category = "Video"
             if not clean_filename:
                 try:
                     meta = MediaExtractor.extract_info(clean_url, source_address=source_ip, timeout=5)

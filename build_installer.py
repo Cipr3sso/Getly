@@ -75,6 +75,25 @@ def step_2_build_engine(ico_path: Path):
     if not target_exe.exists():
         raise FileNotFoundError(f"Expected compiled engine executable not found at {target_exe}")
 
+    # Ensure ffmpeg.exe is bundled with the engine for standalone media stream remuxing
+    ffmpeg_host = shutil.which("ffmpeg") or shutil.which("ffmpeg.exe")
+    if not ffmpeg_host:
+        candidate_paths = [
+            Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Links" / "ffmpeg.exe",
+            Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "ffmpeg" / "bin" / "ffmpeg.exe",
+        ]
+        for c in candidate_paths:
+            if c.exists():
+                ffmpeg_host = str(c)
+                break
+    if ffmpeg_host and Path(ffmpeg_host).exists():
+        dest_ffmpeg = engine_dist / "ffmpeg.exe"
+        try:
+            shutil.copy2(ffmpeg_host, dest_ffmpeg)
+            print(f"  -> ffmpeg.exe incluso nel pacchetto del motore: {dest_ffmpeg}")
+        except Exception as e:
+            print(f"  -> Nota: Impossibile copiare ffmpeg.exe ({e})")
+
     print(f"\n[+] Motore compilato con successo: {target_exe}")
     return target_exe
 

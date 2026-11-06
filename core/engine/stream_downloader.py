@@ -85,6 +85,30 @@ class StreamDownloadEngine:
             return False
 
         ffmpeg_bin = shutil.which("ffmpeg") or shutil.which("ffmpeg.exe")
+        if not ffmpeg_bin:
+            candidates = [
+                Path(sys.executable).parent / "ffmpeg.exe",
+                Path(sys.executable).parent / "GetlyEngine" / "ffmpeg.exe",
+                Path(sys.executable).parent.parent / "ffmpeg.exe",
+                Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Links" / "ffmpeg.exe",
+                Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "ffmpeg" / "bin" / "ffmpeg.exe",
+            ]
+            for cand in candidates:
+                if cand.exists():
+                    ffmpeg_bin = str(cand)
+                    break
+
+        is_audio = bool(
+            (self.custom_format and "bestaudio" in self.custom_format)
+            or (self.task and getattr(self.task, "category", "") in ("Audio", "Musica"))
+            or (self.task and getattr(self.task, "filename", "") and Path(self.task.filename).suffix.lower() in (".mp3", ".m4a", ".flac", ".ogg", ".opus", ".wav", ".aac"))
+        )
+
+        target_ext = "mp3"
+        if (self.custom_format and "m4a" in self.custom_format) or (self.task and getattr(self.task, "filename", "") and Path(self.task.filename).suffix.lower() == ".m4a"):
+            target_ext = "m4a"
+        elif (self.custom_format and "flac" in self.custom_format) or (self.task and getattr(self.task, "filename", "") and Path(self.task.filename).suffix.lower() == ".flac"):
+            target_ext = "flac"
 
         # Template for output filename
         if self.task.filename:
@@ -164,7 +188,6 @@ class StreamDownloadEngine:
         ydl_opts: Dict[str, Any] = {
             "outtmpl": outtmpl,
             "format": format_selector,
-            "merge_output_format": "mp4",
             "noplaylist": True,
             "quiet": True,
             "no_warnings": True,
@@ -172,6 +195,17 @@ class StreamDownloadEngine:
             "progress_hooks": [progress_hook],
             "postprocessor_hooks": [postprocessor_hook],
         }
+
+        if is_audio:
+            ydl_opts["postprocessors"] = [
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": target_ext,
+                    "preferredquality": "192",
+                }
+            ]
+        else:
+            ydl_opts["merge_output_format"] = "mp4"
 
         if ffmpeg_bin:
             ydl_opts["ffmpeg_location"] = ffmpeg_bin
@@ -185,8 +219,8 @@ class StreamDownloadEngine:
                     meta = ydl.extract_info(self.task.url, download=False)
                     if meta:
                         title = meta.get("title")
-                        if title:
-                            clean_fn = sanitize_filename(title, ext="mp4")
+                        if title and not self.task.filename:
+                            clean_fn = sanitize_filename(title, ext=target_ext if is_audio else "mp4")
                             self.task.filename = clean_fn
                             if self.info:
                                 self.info.filename = clean_fn
