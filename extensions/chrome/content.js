@@ -11,6 +11,8 @@
  * - Persistent position: remembers user's preferred spot across media items and page loads.
  * - Full bubble-phase event isolation: stops clicks/pointers from bleeding into underlying web players.
  * - Real-time playback event listener: triggers floating panel when audio/music playback begins.
+ * - Root-level anchoring: Never gets clipped by container overflow:hidden (e.g. SoundCloud, Spotify).
+ * - Real-time Network Sniffer Integration: Instantly reacts when background worker intercepts audio streams.
  */
 
 (function () {
@@ -41,20 +43,77 @@
   // Registry of attached media elements to avoid duplicate panels
   // WeakMap<HTMLMediaElement, MediaPanelInstance>
   const activePanels = new WeakMap();
+  let globalWebAudioPanel = null;
+
+  // =========================================================================
+  // 1. Main-World Hook (Catches in-memory `new Audio()` and detached elements)
+  // =========================================================================
+  function injectMainWorldHook() {
+    try {
+      const script = document.createElement("script");
+      script.textContent = `(${function () {
+        if (window.__GETLY_MAIN_HOOK_INSTALLED__) return;
+        window.__GETLY_MAIN_HOOK_INSTALLED__ = true;
+
+        const notify = (type, elem) => {
+          try {
+            const src = elem.currentSrc || elem.src || "";
+            const isAudio =
+              elem.tagName.toLowerCase() === "audio" ||
+              (elem.videoWidth === 0 && elem.videoHeight === 0);
+            window.dispatchEvent(
+              new CustomEvent("__GETLY_MEDIA_EVENT__", {
+                detail: {
+                  type: type,
+                  tagName: elem.tagName.toLowerCase(),
+                  mediaType: isAudio ? "audio" : "video",
+                  src: src,
+                },
+              })
+            );
+          } catch (_) {}
+        };
+
+        const origPlay = HTMLMediaElement.prototype.play;
+        HTMLMediaElement.prototype.play = function () {
+          notify("PLAY", this);
+          return origPlay.apply(this, arguments);
+        };
+
+        const origPause = HTMLMediaElement.prototype.pause;
+        HTMLMediaElement.prototype.pause = function () {
+          notify("PAUSE", this);
+          return origPause.apply(this, arguments);
+        };
+      }})();`;
+      (document.head || document.documentElement).appendChild(script);
+      script.remove();
+    } catch (_) {}
+  }
+
+  injectMainWorldHook();
+
+  // Listen to main-world audio/video playback events
+  window.addEventListener("__GETLY_MEDIA_EVENT__", (e) => {
+    const detail = e.detail;
+    if (!detail) return;
+    if (detail.type === "PLAY") {
+      onPlaybackDetected(detail.mediaType, detail.src);
+    }
+  });
 
   /**
    * Identifies whether the media element represents Audio / Music or Video
    */
   function determineMediaType(media) {
-    if (media.tagName.toLowerCase() === "audio") {
+    if (media && media.tagName && media.tagName.toLowerCase() === "audio") {
       return "audio";
     }
 
     const host = window.location.hostname.toLowerCase();
-    // Known audio/music dedicated hosts
     if (
-      host.includes("music.youtube.com") ||
       host.includes("soundcloud.com") ||
+      host.includes("music.youtube.com") ||
       host.includes("bandcamp.com") ||
       host.includes("mixcloud.com") ||
       host.includes("audiomack.com") ||
@@ -64,8 +123,9 @@
       return "audio";
     }
 
-    // Video element with no visible video tracks or 0 dimensions acting as audio
     if (
+      media &&
+      media.tagName &&
       media.tagName.toLowerCase() === "video" &&
       media.videoWidth === 0 &&
       media.videoHeight === 0 &&
@@ -82,7 +142,24 @@
    * Helper to safely extract title from page or player
    */
   function extractMediaTitle(media, mediaType) {
-    // 1. YouTube Music specific title & artist
+    // 1. SoundCloud specific title & artist (Bottom bar and Track Page)
+    if (window.location.hostname.includes("soundcloud.com")) {
+      const bottomTitle = document.querySelector(".playbackSoundBadge__titleLink, a.playbackSoundBadge__title");
+      const bottomArtist = document.querySelector(".playbackSoundBadge__lightLink, a.playbackSoundBadge__username");
+      if (bottomTitle && bottomTitle.textContent.trim()) {
+        const artist = bottomArtist && bottomArtist.textContent.trim() ? `${bottomArtist.textContent.trim()} - ` : "";
+        return `${artist}${bottomTitle.textContent.trim()}`;
+      }
+
+      const heroTitle = document.querySelector(".soundTitle__title span, h1.soundTitle__title");
+      const heroArtist = document.querySelector(".soundTitle__username");
+      if (heroTitle && heroTitle.textContent.trim()) {
+        const artist = heroArtist && heroArtist.textContent.trim() ? `${heroArtist.textContent.trim()} - ` : "";
+        return `${artist}${heroTitle.textContent.trim()}`;
+      }
+    }
+
+    // 2. YouTube Music specific title & artist
     if (window.location.hostname.includes("music.youtube.com")) {
       const ytMusicTitle = document.querySelector(
         "ytmusic-player-bar .title, ytmusic-player-bar .yt-formatted-string.title, .middle-controls .title"
@@ -94,20 +171,12 @@
       }
     }
 
-    // 2. Standard YouTube video title
+    // 3. Standard YouTube video title
     const ytTitle = document.querySelector(
       "h1.ytd-watch-metadata yt-formatted-string, #title h1 yt-formatted-string, ytd-reel-player-header-renderer h2"
     );
     if (ytTitle && ytTitle.textContent.trim()) {
       return ytTitle.textContent.trim();
-    }
-
-    // 3. SoundCloud title & artist
-    const scTitle = document.querySelector(".playbackSoundBadge__titleLink, .soundTitle__title");
-    if (scTitle && scTitle.textContent.trim()) {
-      const scArtist = document.querySelector(".playbackSoundBadge__lightLink, .soundTitle__username");
-      const artistText = scArtist && scArtist.textContent.trim() ? `${scArtist.textContent.trim()} - ` : "";
-      return `${artistText}${scTitle.textContent.trim()}`;
     }
 
     // 4. Bandcamp title & artist
@@ -129,7 +198,7 @@
     }
 
     // 6. Direct media filename if present and not blob
-    const src = media.currentSrc || media.src || "";
+    const src = media ? media.currentSrc || media.src || "" : "";
     if (src && !src.startsWith("blob:") && !src.startsWith("data:")) {
       try {
         const parsed = new URL(src);
@@ -163,6 +232,22 @@
    * Helper to resolve canonical media URL
    */
   function resolveMediaTargetUrl(media) {
+    // On SoundCloud, resolve exact playing track from bottom player bar link if present
+    if (window.location.hostname.includes("soundcloud.com")) {
+      const scLink = document.querySelector(".playbackSoundBadge__titleLink, a.playbackSoundBadge__title");
+      if (scLink && scLink.href && scLink.href.startsWith("http")) {
+        return scLink.href;
+      }
+    }
+
+    // On YouTube Music, resolve exact playing video/track link
+    if (window.location.hostname.includes("music.youtube.com")) {
+      const ytMusicLink = document.querySelector("ytmusic-player-bar a.yt-simple-endpoint[href*='watch?v=']");
+      if (ytMusicLink && ytMusicLink.href) {
+        return ytMusicLink.href;
+      }
+    }
+
     const loc = window.location.href;
 
     // On YouTube & YouTube Music, watch & shorts URLs are the source of truth for yt-dlp
@@ -176,12 +261,12 @@
     }
 
     // Generic direct source if present and not blob/data
-    const src = media.currentSrc || media.src || "";
+    const src = media ? media.currentSrc || media.src || "" : "";
     if (src && !src.startsWith("blob:") && !src.startsWith("data:")) {
       return src;
     }
 
-    // Fallback to page URL (e.g. SoundCloud, Bandcamp, Vimeo, Twitch, Twitter, TikTok)
+    // Fallback to page URL (SoundCloud, Bandcamp, Spotify, Vimeo, Twitch, Twitter, TikTok)
     return loc;
   }
 
@@ -189,9 +274,10 @@
    * MediaPanelInstance represents the floating bar attached to a specific video or audio element
    */
   class MediaPanelInstance {
-    constructor(media, mediaType) {
+    constructor(media, mediaType, options = {}) {
       this.media = media;
       this.mediaType = mediaType || determineMediaType(media);
+      this.options = options;
       this.host = null;
       this.shadow = null;
       this.hideTimer = null;
@@ -199,23 +285,24 @@
       this.isMouseOverPanel = false;
       this.isDismissed = false;
       this.isFixed = false;
+      this.container = null;
 
       this.init();
     }
 
     init() {
-      // Find the best container to anchor the panel
-      const container = this.findPlayerContainer();
-      if (!container) return;
+      // Find the best container or player bar
+      this.container = this.options.container || this.findPlayerContainer();
+      if (!this.container) this.container = document.body;
 
-      // Determine if we should use fixed viewport positioning (for headless/body audio)
-      this.isFixed = container === document.body || container === document.documentElement;
+      // Audio panels are ALWAYS fixed to document.body so they are never clipped by overflow:hidden
+      const isAudio = this.mediaType === "audio";
+      this.isFixed = isAudio || this.container === document.body || this.container === document.documentElement;
 
-      // Ensure container has relative/absolute positioning to anchor absolute child
       if (!this.isFixed) {
-        const containerStyle = window.getComputedStyle(container);
+        const containerStyle = window.getComputedStyle(this.container);
         if (containerStyle.position === "static") {
-          container.style.position = "relative";
+          this.container.style.position = "relative";
         }
       }
 
@@ -234,18 +321,22 @@
       this.host.style.setProperty("isolation", "isolate", "important");
 
       // Set initial position: try to restore user saved position or default
-      this.restorePosition(container);
+      this.restorePosition(this.container);
 
       // Attach isolated Shadow DOM to guarantee zero CSS conflict
       this.shadow = this.host.attachShadow({ mode: "open" });
       this.render();
-      this.bindEvents(container);
+      this.bindEvents(this.container);
 
-      // Append host into the container or body
-      try {
-        container.appendChild(this.host);
-      } catch (_) {
+      // If fixed, ALWAYS append directly to document.body to avoid clipping
+      if (this.isFixed) {
         document.body.appendChild(this.host);
+      } else {
+        try {
+          this.container.appendChild(this.host);
+        } catch (_) {
+          document.body.appendChild(this.host);
+        }
       }
 
       // Initial transient fade-in preview (6s for audio, 3.5s for video)
@@ -260,37 +351,42 @@
         if (raw) saved = JSON.parse(raw);
       } catch (_) {}
 
-      const containerRect = container.getBoundingClientRect();
-      const isHorizontalBar =
-        !this.isFixed && containerRect.height > 0 && containerRect.height <= 100 && containerRect.width >= 240;
+      const containerRect = container ? container.getBoundingClientRect() : { width: 0, height: 0, top: 0, bottom: 0 };
+      const isHorizontalBottomBar =
+        this.mediaType === "audio" &&
+        containerRect.height > 0 &&
+        containerRect.bottom >= window.innerHeight - 80;
 
       if (
         saved &&
         typeof saved.xRatio === "number" &&
         typeof saved.yRatio === "number" &&
-        containerRect.width > 120 &&
-        containerRect.height > 80
+        window.innerWidth > 200
       ) {
-        const left = Math.max(8, Math.min(containerRect.width - 160, saved.xRatio * containerRect.width));
-        const top = Math.max(8, Math.min(containerRect.height - 40, saved.yRatio * containerRect.height));
+        const baseWidth = this.isFixed ? window.innerWidth : Math.max(containerRect.width, 200);
+        const baseHeight = this.isFixed ? window.innerHeight : Math.max(containerRect.height, 100);
+        const left = Math.max(8, Math.min(baseWidth - 160, saved.xRatio * baseWidth));
+        const top = Math.max(8, Math.min(baseHeight - 40, saved.yRatio * baseHeight));
         this.host.style.setProperty("right", "auto", "important");
         this.host.style.setProperty("bottom", "auto", "important");
         this.host.style.setProperty("left", `${left}px`, "important");
         this.host.style.setProperty("top", `${top}px`, "important");
-      } else if (isHorizontalBar) {
-        // Bottom player bar (e.g., SoundCloud, YouTube Music, Spotify): float right above the bar
-        this.host.style.setProperty("bottom", "calc(100% + 8px)", "important");
-        this.host.style.setProperty("top", "auto", "important");
+      } else if (isHorizontalBottomBar && this.isFixed) {
+        // Floating fixed right above the bottom player bar (e.g. SoundCloud, YouTube Music, Spotify)
+        const barHeight = Math.max(containerRect.height, 48);
+        const bottomOffset = Math.round(barHeight + 12);
+        this.host.style.setProperty("bottom", `${bottomOffset}px`, "important");
         this.host.style.setProperty("right", "24px", "important");
+        this.host.style.setProperty("top", "auto", "important");
         this.host.style.setProperty("left", "auto", "important");
       } else if (this.isFixed) {
-        // Floating fixed widget in viewport for headless audio / web radio
-        this.host.style.setProperty("bottom", "28px", "important");
-        this.host.style.setProperty("right", "28px", "important");
+        // Floating fixed widget in bottom-right corner for web audio
+        this.host.style.setProperty("bottom", "64px", "important");
+        this.host.style.setProperty("right", "24px", "important");
         this.host.style.setProperty("top", "auto", "important");
         this.host.style.setProperty("left", "auto", "important");
       } else {
-        // Default top-right with safe margins
+        // Default top-right inside video player
         this.host.style.setProperty("top", "14px", "important");
         this.host.style.setProperty("right", "16px", "important");
         this.host.style.setProperty("left", "auto", "important");
@@ -308,65 +404,67 @@
         const ytPlayer = document.querySelector(
           "#movie_player, .html5-video-player, #player-container, ytd-reel-video-renderer"
         );
-        if (ytPlayer && (ytPlayer.contains(this.media) || ytPlayer === this.media.parentElement)) {
+        if (ytPlayer && (!this.media || ytPlayer.contains(this.media) || ytPlayer === this.media.parentElement)) {
           return ytPlayer;
         }
       }
 
-      // 2. YouTube Music bar container
+      // 2. SoundCloud bottom player bar
+      if (window.location.hostname.includes("soundcloud.com")) {
+        const scBar = document.querySelector(".playControls, .playControls__elements");
+        if (scBar) return scBar;
+        const heroPlayer = document.querySelector(".soundTitle__title, .waveformCommentsNode, .listenArtworkWrapper");
+        if (heroPlayer) return heroPlayer;
+      }
+
+      // 3. YouTube Music bar container
       if (window.location.hostname.includes("music.youtube.com")) {
         const ytMusicBar = document.querySelector("ytmusic-player-bar, #player-bar-background");
         if (ytMusicBar) return ytMusicBar;
       }
 
-      // 3. SoundCloud bottom play bar or sound widget
-      if (window.location.hostname.includes("soundcloud.com")) {
-        const scBar = document.querySelector(".playControls, .playControls__elements");
-        if (scBar) return scBar;
+      // 4. Spotify Web
+      if (window.location.hostname.includes("spotify.com")) {
+        const spBar = document.querySelector("footer[data-testid='now-playing-bar'], [data-testid='now-playing-widget']");
+        if (spBar) return spBar;
       }
 
-      // 4. Bandcamp player
+      // 5. Bandcamp player
       if (window.location.hostname.includes("bandcamp.com")) {
         const bcPlayer = document.querySelector(".inline_player, #trackInfoInner, .audioplayer");
         if (bcPlayer) return bcPlayer;
       }
 
-      // 5. Look upwards from media element for player containers
-      let parent = this.media.parentElement;
-      while (parent && parent !== document.body && parent !== document.documentElement) {
-        const style = window.getComputedStyle(parent);
-        const pos = style.position;
-        const cls = (parent.className || "").toString().toLowerCase();
-        const id = (parent.id || "").toLowerCase();
+      // 6. Look upwards from media element
+      if (this.media) {
+        let parent = this.media.parentElement;
+        while (parent && parent !== document.body && parent !== document.documentElement) {
+          const style = window.getComputedStyle(parent);
+          const pos = style.position;
+          const cls = (parent.className || "").toString().toLowerCase();
+          const id = (parent.id || "").toLowerCase();
 
-        if (
-          cls.includes("player") ||
-          cls.includes("video-js") ||
-          cls.includes("plyr") ||
-          cls.includes("jwplayer") ||
-          cls.includes("audioplayer") ||
-          cls.includes("playback") ||
-          cls.includes("controls") ||
-          id.includes("player") ||
-          pos === "relative" ||
-          pos === "absolute" ||
-          pos === "fixed"
-        ) {
-          return parent;
+          if (
+            cls.includes("player") ||
+            cls.includes("video-js") ||
+            cls.includes("plyr") ||
+            cls.includes("jwplayer") ||
+            cls.includes("audioplayer") ||
+            cls.includes("playback") ||
+            cls.includes("controls") ||
+            id.includes("player") ||
+            pos === "relative" ||
+            pos === "absolute" ||
+            pos === "fixed"
+          ) {
+            return parent;
+          }
+          parent = parent.parentElement;
         }
-        parent = parent.parentElement;
       }
 
-      // 6. Generic visible audio player bar on page
-      if (this.mediaType === "audio") {
-        const commonPlayer = document.querySelector(
-          "ytmusic-player-bar, .playControls, .playback-bar, [data-testid='now-playing-widget'], footer[class*='player'], .audio-player, .mejs__container"
-        );
-        if (commonPlayer) return commonPlayer;
-      }
-
-      // Fallback: parent if positioned or body (fixed)
-      return this.media.parentElement || document.body;
+      // Fallback: document.body
+      return document.body;
     }
 
     render() {
@@ -674,7 +772,7 @@
         }
       `;
 
-      // Brand icon: musical double-note for audio, download arrow for video
+      // Musical double-note for audio, download arrow for video
       const brandIconSvg = isAudio
         ? `<svg class="brand-icon" viewBox="0 0 24 24">
              <path d="M9 18V5l12-2v13" />
@@ -803,12 +901,7 @@
       const sniffedContainer = this.shadow.getElementById("sniffedContainer");
       const sniffedList = this.shadow.getElementById("sniffedList");
 
-      // =========================================================================
-      // 1. Prevent ANY mouse/pointer/touch event from escaping this.host to the page.
-      // We listen in the BUBBLING PHASE (capture: false) on this.host!
-      // This allows inner buttons inside the Shadow DOM to receive events normally,
-      // while stopping the events from reaching YouTube/player elements behind!
-      // =========================================================================
+      // Prevent mouse/pointer/touch event from escaping to the underlying page
       const BUBBLE_STOP_EVENTS = [
         "pointerdown",
         "pointerup",
@@ -844,33 +937,33 @@
       });
 
       // Hover on video/audio container reveals panel
-      const onContainerEnter = () => {
-        if (!this.isDismissed && floatingButtonEnabled) {
-          this.showPanel();
-          this.clearHideTimer();
-        }
-      };
-
-      const onContainerLeave = () => {
-        if (!this.isMouseOverPanel && !this.isMenuOpen && !isDragging) {
-          this.scheduleHide(1800);
-        }
-      };
-
-      container.addEventListener("mouseenter", onContainerEnter);
-      container.addEventListener("mouseleave", onContainerLeave);
-      container.addEventListener("mousemove", () => {
-        if (!this.isDismissed && floatingButtonEnabled) {
-          this.showPanel();
-          if (!this.isMouseOverPanel && !this.isMenuOpen && !isDragging) {
-            this.scheduleHide(2500);
+      if (container && container !== document.body) {
+        const onContainerEnter = () => {
+          if (!this.isDismissed && floatingButtonEnabled) {
+            this.showPanel();
+            this.clearHideTimer();
           }
-        }
-      });
+        };
 
-      // =========================================================================
-      // 2. Drag & Drop System (Movable anywhere on the player or viewport)
-      // =========================================================================
+        const onContainerLeave = () => {
+          if (!this.isMouseOverPanel && !this.isMenuOpen && !isDragging) {
+            this.scheduleHide(1800);
+          }
+        };
+
+        container.addEventListener("mouseenter", onContainerEnter);
+        container.addEventListener("mouseleave", onContainerLeave);
+        container.addEventListener("mousemove", () => {
+          if (!this.isDismissed && floatingButtonEnabled) {
+            this.showPanel();
+            if (!this.isMouseOverPanel && !this.isMenuOpen && !isDragging) {
+              this.scheduleHide(2500);
+            }
+          }
+        });
+      }
+
+      // Drag & Drop System
       let isDragging = false;
       let hasDragged = false;
       let startPointerX = 0;
@@ -887,14 +980,13 @@
         startPointerX = e.clientX;
         startPointerY = e.clientY;
 
-        const containerRect = this.isFixed
+        const hostRect = this.host.getBoundingClientRect();
+        const baseRect = this.isFixed
           ? { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight }
           : container.getBoundingClientRect();
-        const hostRect = this.host.getBoundingClientRect();
 
-        // Convert any right/bottom-anchored styling to explicit left/top
-        startHostLeft = hostRect.left - containerRect.left;
-        startHostTop = hostRect.top - containerRect.top;
+        startHostLeft = hostRect.left - baseRect.left;
+        startHostTop = hostRect.top - baseRect.top;
 
         this.host.style.setProperty("right", "auto", "important");
         this.host.style.setProperty("bottom", "auto", "important");
@@ -923,16 +1015,16 @@
           e.preventDefault();
           e.stopPropagation();
 
-          const containerRect = this.isFixed
-            ? { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight }
+          const baseRect = this.isFixed
+            ? { width: window.innerWidth, height: window.innerHeight }
             : container.getBoundingClientRect();
           const hostRect = this.host.getBoundingClientRect();
 
           let newLeft = startHostLeft + dx;
           let newTop = startHostTop + dy;
 
-          const maxLeft = Math.max(8, containerRect.width - hostRect.width - 8);
-          const maxTop = Math.max(8, containerRect.height - hostRect.height - 8);
+          const maxLeft = Math.max(8, baseRect.width - hostRect.width - 8);
+          const maxTop = Math.max(8, baseRect.height - hostRect.height - 8);
 
           newLeft = Math.max(8, Math.min(maxLeft, newLeft));
           newTop = Math.max(8, Math.min(maxTop, newTop));
@@ -940,7 +1032,6 @@
           this.host.style.setProperty("left", `${newLeft}px`, "important");
           this.host.style.setProperty("top", `${newTop}px`, "important");
 
-          // Smart dropdown menu alignment: if close to right edge, align menu to right; if close to left, align to left
           if (newLeft < 200) {
             panelWrap.style.alignItems = "flex-start";
           } else {
@@ -963,13 +1054,12 @@
           e.preventDefault();
           e.stopPropagation();
 
-          const containerRect = this.isFixed
-            ? { width: window.innerWidth, height: window.innerHeight }
-            : container.getBoundingClientRect();
+          const baseWidth = this.isFixed ? window.innerWidth : container.getBoundingClientRect().width;
+          const baseHeight = this.isFixed ? window.innerHeight : container.getBoundingClientRect().height;
           const currentLeft = parseFloat(this.host.style.left) || 8;
           const currentTop = parseFloat(this.host.style.top) || 8;
-          const xRatio = currentLeft / Math.max(containerRect.width, 1);
-          const yRatio = currentTop / Math.max(containerRect.height, 1);
+          const xRatio = currentLeft / Math.max(baseWidth, 1);
+          const yRatio = currentTop / Math.max(baseHeight, 1);
 
           try {
             localStorage.setItem(
@@ -980,28 +1070,23 @@
         }
       };
 
-      // Drag Handle explicitly triggers drag
       dragHandle.addEventListener("pointerdown", (e) => {
         e.stopPropagation();
         e.preventDefault();
         startDrag(e);
       });
 
-      // Clicking empty areas of pillBar (not buttons) also starts drag
       pillBar.addEventListener("pointerdown", (e) => {
         const path = e.composedPath ? e.composedPath() : [e.target];
         const isButton = path.some((el) => {
           if (!el || !el.id) return false;
           return el.id === "btnMain" || el.id === "btnDropdown" || el.id === "btnClose";
         });
-        if (isButton) return; // Let button handle its own click
+        if (isButton) return;
         e.stopPropagation();
         startDrag(e);
       });
 
-      // =========================================================================
-      // 3. Interactive Buttons (Main, Dropdown, Close, Menu Items)
-      // =========================================================================
       btnMain.addEventListener("click", (e) => {
         e.stopPropagation();
         e.preventDefault();
@@ -1041,7 +1126,6 @@
         this.hidePanel();
       });
 
-      // Close menu when clicking anywhere outside
       document.addEventListener("click", (e) => {
         if (this.isMenuOpen && !this.host.contains(e.target)) {
           this.isMenuOpen = false;
@@ -1065,12 +1149,12 @@
         containerEl.style.display = "block";
         listEl.innerHTML = "";
 
-        // List up to 4 most recent streams
         const streams = response.media.slice(-4);
         streams.forEach((item) => {
           const itemBtn = document.createElement("button");
           itemBtn.className = "menu-item";
-          const isAudioBadge = (item.formatBadge || "").toLowerCase() === "mp3" || (item.formatBadge || "").toLowerCase() === "audio";
+          const isAudioBadge =
+            (item.formatBadge || "").toLowerCase() === "mp3" || (item.formatBadge || "").toLowerCase() === "audio";
           itemBtn.innerHTML = `
             <span class="item-left">
               <span class="item-icon">${isAudioBadge ? "🎵" : "⚡"}</span>
@@ -1119,7 +1203,7 @@
           title: title,
           format: format,
           referer: window.location.href,
-          mediaSrc: this.media.currentSrc || this.media.src || "",
+          mediaSrc: this.media ? this.media.currentSrc || this.media.src || "" : "",
         },
         (response) => {
           if (btnText) btnText.textContent = defaultText;
@@ -1188,8 +1272,123 @@
     });
   }
 
+  // =========================================================================
+  // 2. Web Player Monitor (SoundCloud, YouTube Music, Spotify, Bandcamp)
+  // =========================================================================
+  function ensureWebAudioPanel(container, siteName) {
+    if (!globalWebAudioPanel || !document.body.contains(globalWebAudioPanel.host)) {
+      globalWebAudioPanel = new MediaPanelInstance(null, "audio", { container });
+    } else {
+      globalWebAudioPanel.showPanel();
+      globalWebAudioPanel.scheduleHide(6000);
+    }
+  }
+
+  function checkActiveMusicPlayers() {
+    // 1. SoundCloud: check bottom play bar or sound playing state
+    if (window.location.hostname.includes("soundcloud.com")) {
+      const isPlaying = Boolean(
+        document.querySelector(
+          ".playControl.playing, button.playControl[title*='Pause'], button.playControls__play[aria-label*='Pause'], .sc-button-pause, .playButton.playing"
+        )
+      );
+      const hasTrackInPlayer = Boolean(
+        document.querySelector(".playbackSoundBadge__titleLink, .soundTitle__title")
+      );
+      if (isPlaying || hasTrackInPlayer) {
+        const scBar = document.querySelector(".playControls, .playControls__elements") || document.body;
+        ensureWebAudioPanel(scBar, "soundcloud");
+      }
+      return;
+    }
+
+    // 2. YouTube Music
+    if (window.location.hostname.includes("music.youtube.com")) {
+      const bar = document.querySelector("ytmusic-player-bar");
+      const isPlaying = Boolean(
+        bar &&
+          (bar.hasAttribute("is-playing") ||
+            document.querySelector("ytmusic-player-bar #play-pause-button[title*='Paus']"))
+      );
+      if (isPlaying && bar) {
+        ensureWebAudioPanel(bar, "ytmusic");
+      }
+      return;
+    }
+
+    // 3. Spotify Web
+    if (window.location.hostname.includes("spotify.com")) {
+      const isPlaying = Boolean(
+        document.querySelector("button[data-testid='control-button-playpause'][aria-label*='Paus']")
+      );
+      if (isPlaying) {
+        const spBar =
+          document.querySelector("footer[data-testid='now-playing-bar'], [data-testid='now-playing-widget']") ||
+          document.body;
+        ensureWebAudioPanel(spBar, "spotify");
+      }
+      return;
+    }
+
+    // 4. Bandcamp
+    if (window.location.hostname.includes("bandcamp.com")) {
+      const isPlaying = Boolean(document.querySelector(".playbutton.playing, .playing .playbutton"));
+      if (isPlaying) {
+        const bcPlayer = document.querySelector(".inline_player, #trackInfoInner") || document.body;
+        ensureWebAudioPanel(bcPlayer, "bandcamp");
+      }
+      return;
+    }
+  }
+
+  // =========================================================================
+  // 3. Network Sniffer Real-time Listener (from background.js)
+  // =========================================================================
+  if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
+    chrome.runtime.onMessage.addListener((request) => {
+      if (request.type === "MEDIA_SNIFFED" && request.mediaItem) {
+        const item = request.mediaItem;
+        const badge = (item.formatBadge || "").toLowerCase();
+        const mime = (item.mimeType || "").toLowerCase();
+        const url = (item.url || "").toLowerCase();
+
+        const isAudio =
+          badge === "mp3" ||
+          badge === "audio" ||
+          mime.startsWith("audio/") ||
+          url.includes(".mp3") ||
+          url.includes(".m4a") ||
+          url.includes(".aac") ||
+          url.includes(".flac") ||
+          url.includes(".wav") ||
+          url.includes(".ogg") ||
+          url.includes(".opus") ||
+          window.location.hostname.includes("soundcloud.com") ||
+          window.location.hostname.includes("music.youtube.com") ||
+          window.location.hostname.includes("spotify.com") ||
+          window.location.hostname.includes("bandcamp.com");
+
+        if (isAudio) {
+          const container =
+            document.querySelector(".playControls, ytmusic-player-bar, .playback-bar, [data-testid='now-playing-widget']") ||
+            document.body;
+          ensureWebAudioPanel(container, "sniffer");
+        }
+      }
+    });
+  }
+
+  function onPlaybackDetected(mediaType, src) {
+    if (mediaType === "audio") {
+      const container =
+        document.querySelector(".playControls, ytmusic-player-bar, .playback-bar, [data-testid='now-playing-widget']") ||
+        document.body;
+      ensureWebAudioPanel(container, "playback-event");
+    }
+  }
+
   /**
-   * Evaluates a media element (video or audio) and attaches a floating panel if appropriate
+   * Evaluates a DOM media element (video or audio) and attaches a floating panel if appropriate
    */
   function handleMediaElement(media) {
     if (!media || !(media instanceof HTMLMediaElement)) return;
@@ -1211,7 +1410,6 @@
         return;
       }
     } else if (isAudio) {
-      // Audio element: attach if it has visible controls, or has source, or is currently playing
       const hasSrc = Boolean(media.src || media.currentSrc || media.querySelector("source"));
       const isPlaying = !media.paused && media.currentTime > 0;
       const hasControls = media.hasAttribute("controls");
@@ -1229,6 +1427,8 @@
    * Scans document for both video and audio elements
    */
   function scanAndAttachMedia() {
+    checkActiveMusicPlayers();
+
     const mediaElements = document.querySelectorAll("video, audio");
     mediaElements.forEach((el) => {
       handleMediaElement(el);
@@ -1257,7 +1457,7 @@
   document.addEventListener("play", onMediaPlaybackStarted, true);
   document.addEventListener("playing", onMediaPlaybackStarted, true);
 
-  // Periodic and MutationObserver monitoring for dynamically loaded players (SPA, YouTube navigation)
+  // Periodic and MutationObserver monitoring for dynamically loaded players (SPA, SoundCloud, YouTube)
   const observer = new MutationObserver(() => {
     scanAndAttachMedia();
   });
@@ -1269,12 +1469,12 @@
 
   // SPA navigation events
   window.addEventListener("yt-navigate-finish", () => {
-    setTimeout(scanAndAttachMedia, 800);
+    setTimeout(scanAndAttachMedia, 600);
   });
   window.addEventListener("spfdone", () => {
-    setTimeout(scanAndAttachMedia, 800);
+    setTimeout(scanAndAttachMedia, 600);
   });
 
-  // Re-scan periodically at low frequency (every 2.5s) to catch delayed audio/video rendering
-  setInterval(scanAndAttachMedia, 2500);
+  // Re-scan periodically (every 1.5s) to catch delayed audio/video rendering or track change
+  setInterval(scanAndAttachMedia, 1500);
 })();

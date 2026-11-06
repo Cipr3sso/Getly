@@ -417,6 +417,14 @@ chrome.webRequest.onResponseStarted.addListener(
       tabId: details.tabId,
       color: "#2563EB",
     });
+
+    // Notify tab content script in real-time that media playback was intercepted
+    chrome.tabs.sendMessage(details.tabId, {
+      type: "MEDIA_SNIFFED",
+      mediaItem: mediaItem,
+    }).catch(() => {
+      // Content script may not be loaded yet or frame is restricted
+    });
   },
   { urls: ["<all_urls>"] },
   ["responseHeaders"]
