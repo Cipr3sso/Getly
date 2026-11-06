@@ -503,11 +503,12 @@ async function sendMediaToGetly(mediaItem, refererUrl) {
   }
 
   const cookieString = await extractFullCookieHeader(mediaItem.url, effectiveReferer);
+  const mediaCategory = detectCategory(mediaItem.filename || mediaItem.url, mediaItem.mimeType);
 
   const payload = {
     url: mediaItem.url,
     filename: mediaItem.filename,
-    category: "Video",
+    category: mediaCategory,
     headers: {
       Referer: effectiveReferer,
       "User-Agent": navigator.userAgent,
@@ -525,27 +526,38 @@ async function sendMediaToGetly(mediaItem, refererUrl) {
 }
 
 /**
- * Handles download requests originating from the floating video panel in content.js
+ * Handles download requests originating from the floating video or audio panel in content.js
  */
-async function downloadVideoFromPage(request, sender) {
+async function downloadMediaFromPage(request, sender) {
   const targetUrl = request.url || "";
   const refererUrl = request.referer || (sender.tab ? sender.tab.url : "");
-  const format = request.format || "best";
+  const format = request.format || (request.mediaType === "audio" ? "audio" : "best");
+  const isAudio = request.mediaType === "audio" || format.startsWith("audio");
 
   // Map format to yt-dlp selector
   let customFormat = "";
-  let category = "Video";
+  let category = isAudio ? "Audio" : "Video";
+
   if (format === "1080p") {
     customFormat = "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best";
   } else if (format === "720p") {
     customFormat = "bestvideo[height<=720]+bestaudio/best[height<=720]/best";
   } else if (format === "480p") {
     customFormat = "bestvideo[height<=480]+bestaudio/best[height<=480]/best";
-  } else if (format === "audio") {
+  } else if (format === "audio" || format === "audio_best") {
+    customFormat = "bestaudio/best";
+    category = "Audio";
+  } else if (format === "audio_mp3") {
+    customFormat = "bestaudio/best";
+    category = "Audio";
+  } else if (format === "audio_m4a") {
+    customFormat = "bestaudio[ext=m4a]/bestaudio/best";
+    category = "Audio";
+  } else if (format === "audio_flac") {
     customFormat = "bestaudio/best";
     category = "Audio";
   } else {
-    // "best"
+    // "best" video
     customFormat = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best";
   }
 
@@ -554,7 +566,10 @@ async function downloadVideoFromPage(request, sender) {
 
   let cleanFilename = "";
   if (request.title) {
-    cleanFilename = `${request.title.replace(/[\\/:*?"<>|]/g, "_")}.${format === "audio" ? "m4a" : "mp4"}`;
+    let ext = isAudio ? "mp3" : "mp4";
+    if (format === "audio_m4a") ext = "m4a";
+    else if (format === "audio_flac") ext = "flac";
+    cleanFilename = `${request.title.replace(/[\\/:*?"<>|]/g, "_")}.${ext}`;
   }
 
   const payload = {
@@ -604,8 +619,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return false;
   }
 
-  if (request.type === "DOWNLOAD_VIDEO_FROM_PAGE") {
-    downloadVideoFromPage(request, sender)
+  if (request.type === "DOWNLOAD_VIDEO_FROM_PAGE" || request.type === "DOWNLOAD_MEDIA_FROM_PAGE") {
+    downloadMediaFromPage(request, sender)
       .then((res) => sendResponse({ success: true, result: res }))
       .catch((err) => sendResponse({ success: false, error: err.message }));
     return true;
@@ -709,14 +724,20 @@ function detectCategory(filename, mime) {
   }
 
   if (
-    lowerMime.startsWith("video/") ||
     lowerMime.startsWith("audio/") ||
+    lower.endsWith(".mp3") || lower.endsWith(".m4a") || lower.endsWith(".aac") ||
+    lower.endsWith(".flac") || lower.endsWith(".wav") || lower.endsWith(".ogg") ||
+    lower.endsWith(".opus")
+  ) {
+    return "Audio";
+  }
+
+  if (
+    lowerMime.startsWith("video/") ||
     lower.endsWith(".mp4") || lower.endsWith(".mkv") || lower.endsWith(".webm") ||
     lower.endsWith(".avi") || lower.endsWith(".mov") || lower.endsWith(".wmv") ||
     lower.endsWith(".flv") || lower.endsWith(".m4v") || lower.endsWith(".m3u8") ||
-    lower.endsWith(".mpd") || lower.endsWith(".ts") || lower.endsWith(".mp3") ||
-    lower.endsWith(".m4a") || lower.endsWith(".aac") || lower.endsWith(".flac") ||
-    lower.endsWith(".wav") || lower.endsWith(".ogg") || lower.endsWith(".opus")
+    lower.endsWith(".mpd") || lower.endsWith(".ts")
   ) {
     return "Video";
   }

@@ -1,14 +1,16 @@
 /**
- * Getly - Video Download Floating Panel (Content Script)
- * Automatically detects HTML5 video players (YouTube, Vimeo, Twitch, and web videos)
- * and displays an elegant, acrylic floating download bar inspired by IDM,
- * styled with modern Fluent / WinUI 3 aesthetics inside an isolated Shadow DOM.
+ * Getly - Media Download Floating Panel (Content Script)
+ * Automatically detects HTML5 video players (YouTube, Vimeo, Twitch, web videos)
+ * AND active audio/music streams (YouTube Music, SoundCloud, Bandcamp, Spotify, podcast players, HTML5 audio),
+ * displaying an acrylic floating download bar inspired by IDM with modern WinUI 3 aesthetics.
  *
  * Features:
+ * - Smart detection: Identifies Video vs. Audio/Music playback and adapts UI, icons, and quality options.
  * - 100% Opaque solid background (#0f172a): zero ghost buttons visible from underneath.
- * - Draggable & Movable across the player container via the drag handle (⠿) or bar background.
- * - Persistent position: remembers user's preferred spot across videos and page loads.
- * - Full bubble-phase event isolation: stops clicks/pointers from bleeding into YouTube/player controls.
+ * - Draggable & Movable: Drag anywhere across the player container or viewport via the drag handle (⠿).
+ * - Persistent position: remembers user's preferred spot across media items and page loads.
+ * - Full bubble-phase event isolation: stops clicks/pointers from bleeding into underlying web players.
+ * - Real-time playback event listener: triggers floating panel when audio/music playback begins.
  */
 
 (function () {
@@ -36,15 +38,63 @@
     });
   }
 
-  // Registry of attached video elements to avoid duplicate panels
-  // WeakMap<HTMLVideoElement, VideoPanelInstance>
+  // Registry of attached media elements to avoid duplicate panels
+  // WeakMap<HTMLMediaElement, MediaPanelInstance>
   const activePanels = new WeakMap();
 
   /**
-   * Helper to safely extract video title from page
+   * Identifies whether the media element represents Audio / Music or Video
    */
-  function extractVideoTitle() {
-    // 1. YouTube specific title
+  function determineMediaType(media) {
+    if (media.tagName.toLowerCase() === "audio") {
+      return "audio";
+    }
+
+    const host = window.location.hostname.toLowerCase();
+    // Known audio/music dedicated hosts
+    if (
+      host.includes("music.youtube.com") ||
+      host.includes("soundcloud.com") ||
+      host.includes("bandcamp.com") ||
+      host.includes("mixcloud.com") ||
+      host.includes("audiomack.com") ||
+      host.includes("spotify.com") ||
+      host.includes("deezer.com")
+    ) {
+      return "audio";
+    }
+
+    // Video element with no visible video tracks or 0 dimensions acting as audio
+    if (
+      media.tagName.toLowerCase() === "video" &&
+      media.videoWidth === 0 &&
+      media.videoHeight === 0 &&
+      !media.paused &&
+      media.currentTime > 0
+    ) {
+      return "audio";
+    }
+
+    return "video";
+  }
+
+  /**
+   * Helper to safely extract title from page or player
+   */
+  function extractMediaTitle(media, mediaType) {
+    // 1. YouTube Music specific title & artist
+    if (window.location.hostname.includes("music.youtube.com")) {
+      const ytMusicTitle = document.querySelector(
+        "ytmusic-player-bar .title, ytmusic-player-bar .yt-formatted-string.title, .middle-controls .title"
+      );
+      if (ytMusicTitle && ytMusicTitle.textContent.trim()) {
+        const artist = document.querySelector("ytmusic-player-bar .byline, .middle-controls .byline");
+        const artistText = artist && artist.textContent.trim() ? ` - ${artist.textContent.trim()}` : "";
+        return `${ytMusicTitle.textContent.trim()}${artistText}`;
+      }
+    }
+
+    // 2. Standard YouTube video title
     const ytTitle = document.querySelector(
       "h1.ytd-watch-metadata yt-formatted-string, #title h1 yt-formatted-string, ytd-reel-player-header-renderer h2"
     );
@@ -52,51 +102,103 @@
       return ytTitle.textContent.trim();
     }
 
-    // 2. OpenGraph or Twitter meta tag
+    // 3. SoundCloud title & artist
+    const scTitle = document.querySelector(".playbackSoundBadge__titleLink, .soundTitle__title");
+    if (scTitle && scTitle.textContent.trim()) {
+      const scArtist = document.querySelector(".playbackSoundBadge__lightLink, .soundTitle__username");
+      const artistText = scArtist && scArtist.textContent.trim() ? `${scArtist.textContent.trim()} - ` : "";
+      return `${artistText}${scTitle.textContent.trim()}`;
+    }
+
+    // 4. Bandcamp title & artist
+    const bcTitle = document.querySelector(".trackTitle, .title_link, #name-section .trackTitle");
+    if (bcTitle && bcTitle.textContent.trim()) {
+      const bcArtist = document.querySelector("#name-section h3 span a");
+      const artistText = bcArtist && bcArtist.textContent.trim() ? `${bcArtist.textContent.trim()} - ` : "";
+      return `${artistText}${bcTitle.textContent.trim()}`;
+    }
+
+    // 5. Spotify Web title & artist
+    const spTitle = document.querySelector("[data-testid='now-playing-widget'] [data-testid='context-item-info-title']");
+    if (spTitle && spTitle.textContent.trim()) {
+      const spArtist = document.querySelector(
+        "[data-testid='now-playing-widget'] [data-testid='context-item-info-subartists']"
+      );
+      const artistText = spArtist && spArtist.textContent.trim() ? `${spArtist.textContent.trim()} - ` : "";
+      return `${artistText}${spTitle.textContent.trim()}`;
+    }
+
+    // 6. Direct media filename if present and not blob
+    const src = media.currentSrc || media.src || "";
+    if (src && !src.startsWith("blob:") && !src.startsWith("data:")) {
+      try {
+        const parsed = new URL(src);
+        const name = parsed.pathname.split("/").pop();
+        if (name && name.includes(".")) {
+          return decodeURIComponent(name).split("?")[0].replace(/\.[^/.]+$/, "");
+        }
+      } catch (_) {}
+    }
+
+    // 7. OpenGraph or Twitter meta tag
     const ogTitle = document.querySelector('meta[property="og:title"], meta[name="twitter:title"]');
     if (ogTitle && ogTitle.content && ogTitle.content.trim()) {
       return ogTitle.content.trim();
     }
 
-    // 3. Document title cleaned from common branding suffixes
-    let title = document.title || "video";
-    title = title.replace(/\s*-\s*YouTube$/, "").replace(/\s*-\s*Vimeo$/, "").trim();
+    // 8. Document title cleaned from common branding suffixes
+    let title = document.title || (mediaType === "audio" ? "audio" : "video");
+    title = title
+      .replace(/\s*-\s*YouTube Music$/, "")
+      .replace(/\s*-\s*YouTube$/, "")
+      .replace(/\s*\|\s*SoundCloud$/, "")
+      .replace(/\s*\|\s*Bandcamp$/, "")
+      .replace(/\s*-\s*Spotify$/, "")
+      .replace(/\s*-\s*Vimeo$/, "")
+      .trim();
     return title;
   }
 
   /**
-   * Helper to resolve canonical video URL
+   * Helper to resolve canonical media URL
    */
-  function resolveVideoTargetUrl(video) {
+  function resolveMediaTargetUrl(media) {
     const loc = window.location.href;
 
-    // On YouTube, watch & shorts URLs are the source of truth for yt-dlp
-    if (loc.includes("youtube.com/watch") || loc.includes("youtube.com/shorts") || loc.includes("youtu.be/")) {
+    // On YouTube & YouTube Music, watch & shorts URLs are the source of truth for yt-dlp
+    if (
+      loc.includes("youtube.com/watch") ||
+      loc.includes("youtube.com/shorts") ||
+      loc.includes("music.youtube.com/watch") ||
+      loc.includes("youtu.be/")
+    ) {
       return loc;
     }
 
-    // Generic direct source if present and not blob
-    const src = video.currentSrc || video.src || "";
+    // Generic direct source if present and not blob/data
+    const src = media.currentSrc || media.src || "";
     if (src && !src.startsWith("blob:") && !src.startsWith("data:")) {
       return src;
     }
 
-    // Fallback to page URL (e.g. for Vimeo, Twitter, Twitch, TikTok, Dailymotion)
+    // Fallback to page URL (e.g. SoundCloud, Bandcamp, Vimeo, Twitch, Twitter, TikTok)
     return loc;
   }
 
   /**
-   * VideoPanelInstance represents the floating bar attached to a specific video
+   * MediaPanelInstance represents the floating bar attached to a specific video or audio element
    */
-  class VideoPanelInstance {
-    constructor(video) {
-      this.video = video;
+  class MediaPanelInstance {
+    constructor(media, mediaType) {
+      this.media = media;
+      this.mediaType = mediaType || determineMediaType(media);
       this.host = null;
       this.shadow = null;
       this.hideTimer = null;
       this.isMenuOpen = false;
       this.isMouseOverPanel = false;
       this.isDismissed = false;
+      this.isFixed = false;
 
       this.init();
     }
@@ -106,26 +208,32 @@
       const container = this.findPlayerContainer();
       if (!container) return;
 
+      // Determine if we should use fixed viewport positioning (for headless/body audio)
+      this.isFixed = container === document.body || container === document.documentElement;
+
       // Ensure container has relative/absolute positioning to anchor absolute child
-      const containerStyle = window.getComputedStyle(container);
-      if (containerStyle.position === "static") {
-        container.style.position = "relative";
+      if (!this.isFixed) {
+        const containerStyle = window.getComputedStyle(container);
+        if (containerStyle.position === "static") {
+          container.style.position = "relative";
+        }
       }
 
       // Create host element with highest isolation
       this.host = document.createElement("div");
-      this.host.className = "getly-video-panel-host";
+      this.host.className = `getly-media-panel-host getly-panel-${this.mediaType}`;
       this.host.setAttribute("data-getly-panel", "1");
+      this.host.setAttribute("data-media-type", this.mediaType);
 
       // Critical root styles applied directly on the host in page DOM
       this.host.style.setProperty("all", "initial", "important");
       this.host.style.setProperty("display", "block", "important");
-      this.host.style.setProperty("position", "absolute", "important");
+      this.host.style.setProperty("position", this.isFixed ? "fixed" : "absolute", "important");
       this.host.style.setProperty("z-index", "2147483647", "important");
       this.host.style.setProperty("pointer-events", "auto", "important");
       this.host.style.setProperty("isolation", "isolate", "important");
 
-      // Set initial position: try to restore user saved position or default to top-right
+      // Set initial position: try to restore user saved position or default
       this.restorePosition(container);
 
       // Attach isolated Shadow DOM to guarantee zero CSS conflict
@@ -133,26 +241,29 @@
       this.render();
       this.bindEvents(container);
 
-      // Append host into the container
+      // Append host into the container or body
       try {
         container.appendChild(this.host);
       } catch (_) {
-        container.parentElement?.appendChild(this.host);
+        document.body.appendChild(this.host);
       }
 
-      // Initial transient fade-in preview for 3.5s
+      // Initial transient fade-in preview (6s for audio, 3.5s for video)
       this.showPanel();
-      this.scheduleHide(3500);
+      this.scheduleHide(this.mediaType === "audio" ? 6000 : 3500);
     }
 
     restorePosition(container) {
       let saved = null;
       try {
-        const raw = localStorage.getItem("getly_floating_panel_pos");
+        const raw = localStorage.getItem(`getly_floating_panel_pos_${this.mediaType}`);
         if (raw) saved = JSON.parse(raw);
       } catch (_) {}
 
       const containerRect = container.getBoundingClientRect();
+      const isHorizontalBar =
+        !this.isFixed && containerRect.height > 0 && containerRect.height <= 100 && containerRect.width >= 240;
+
       if (
         saved &&
         typeof saved.xRatio === "number" &&
@@ -163,52 +274,107 @@
         const left = Math.max(8, Math.min(containerRect.width - 160, saved.xRatio * containerRect.width));
         const top = Math.max(8, Math.min(containerRect.height - 40, saved.yRatio * containerRect.height));
         this.host.style.setProperty("right", "auto", "important");
+        this.host.style.setProperty("bottom", "auto", "important");
         this.host.style.setProperty("left", `${left}px`, "important");
         this.host.style.setProperty("top", `${top}px`, "important");
+      } else if (isHorizontalBar) {
+        // Bottom player bar (e.g., SoundCloud, YouTube Music, Spotify): float right above the bar
+        this.host.style.setProperty("bottom", "calc(100% + 8px)", "important");
+        this.host.style.setProperty("top", "auto", "important");
+        this.host.style.setProperty("right", "24px", "important");
+        this.host.style.setProperty("left", "auto", "important");
+      } else if (this.isFixed) {
+        // Floating fixed widget in viewport for headless audio / web radio
+        this.host.style.setProperty("bottom", "28px", "important");
+        this.host.style.setProperty("right", "28px", "important");
+        this.host.style.setProperty("top", "auto", "important");
+        this.host.style.setProperty("left", "auto", "important");
       } else {
         // Default top-right with safe margins
         this.host.style.setProperty("top", "14px", "important");
         this.host.style.setProperty("right", "16px", "important");
         this.host.style.setProperty("left", "auto", "important");
+        this.host.style.setProperty("bottom", "auto", "important");
       }
     }
 
     findPlayerContainer() {
-      // 1. YouTube player container
-      if (window.location.hostname.includes("youtube.com")) {
+      // 1. YouTube video player
+      if (
+        this.mediaType === "video" &&
+        window.location.hostname.includes("youtube.com") &&
+        !window.location.hostname.includes("music.youtube.com")
+      ) {
         const ytPlayer = document.querySelector(
           "#movie_player, .html5-video-player, #player-container, ytd-reel-video-renderer"
         );
-        if (ytPlayer && (ytPlayer.contains(this.video) || ytPlayer === this.video.parentElement)) {
+        if (ytPlayer && (ytPlayer.contains(this.media) || ytPlayer === this.media.parentElement)) {
           return ytPlayer;
         }
       }
 
-      // 2. Generic containers with player class
-      let parent = this.video.parentElement;
+      // 2. YouTube Music bar container
+      if (window.location.hostname.includes("music.youtube.com")) {
+        const ytMusicBar = document.querySelector("ytmusic-player-bar, #player-bar-background");
+        if (ytMusicBar) return ytMusicBar;
+      }
+
+      // 3. SoundCloud bottom play bar or sound widget
+      if (window.location.hostname.includes("soundcloud.com")) {
+        const scBar = document.querySelector(".playControls, .playControls__elements");
+        if (scBar) return scBar;
+      }
+
+      // 4. Bandcamp player
+      if (window.location.hostname.includes("bandcamp.com")) {
+        const bcPlayer = document.querySelector(".inline_player, #trackInfoInner, .audioplayer");
+        if (bcPlayer) return bcPlayer;
+      }
+
+      // 5. Look upwards from media element for player containers
+      let parent = this.media.parentElement;
       while (parent && parent !== document.body && parent !== document.documentElement) {
         const style = window.getComputedStyle(parent);
         const pos = style.position;
         const cls = (parent.className || "").toString().toLowerCase();
+        const id = (parent.id || "").toLowerCase();
 
         if (
           cls.includes("player") ||
           cls.includes("video-js") ||
           cls.includes("plyr") ||
           cls.includes("jwplayer") ||
+          cls.includes("audioplayer") ||
+          cls.includes("playback") ||
+          cls.includes("controls") ||
+          id.includes("player") ||
           pos === "relative" ||
-          pos === "absolute"
+          pos === "absolute" ||
+          pos === "fixed"
         ) {
           return parent;
         }
         parent = parent.parentElement;
       }
 
-      // Fallback: direct parent
-      return this.video.parentElement || document.body;
+      // 6. Generic visible audio player bar on page
+      if (this.mediaType === "audio") {
+        const commonPlayer = document.querySelector(
+          "ytmusic-player-bar, .playControls, .playback-bar, [data-testid='now-playing-widget'], footer[class*='player'], .audio-player, .mejs__container"
+        );
+        if (commonPlayer) return commonPlayer;
+      }
+
+      // Fallback: parent if positioned or body (fixed)
+      return this.media.parentElement || document.body;
     }
 
     render() {
+      const isAudio = this.mediaType === "audio";
+      const accentColor = isAudio ? "#FBBF24" : "#38BDF8";
+      const accentHoverBg = isAudio ? "rgba(251, 191, 36, 0.20)" : "rgba(56, 189, 248, 0.22)";
+      const brandGlow = isAudio ? "rgba(251, 191, 36, 0.5)" : "rgba(56, 189, 248, 0.5)";
+
       const styles = `
         * {
           box-sizing: border-box;
@@ -218,7 +384,6 @@
         :host {
           all: initial;
           display: block !important;
-          position: absolute !important;
           z-index: 2147483647 !important;
           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI Variable Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
           user-select: none;
@@ -269,13 +434,13 @@
         }
 
         .pill:hover {
-          border-color: rgba(56, 189, 248, 0.6);
-          box-shadow: 0 16px 36px rgba(0, 0, 0, 0.95), 0 0 14px rgba(56, 189, 248, 0.25);
+          border-color: ${accentColor};
+          box-shadow: 0 16px 36px rgba(0, 0, 0, 0.95), 0 0 14px ${brandGlow};
         }
 
         .panel-wrap.dragging .pill {
-          border-color: #38BDF8 !important;
-          box-shadow: 0 18px 40px rgba(0, 0, 0, 0.95), 0 0 18px rgba(56, 189, 248, 0.45) !important;
+          border-color: ${accentColor} !important;
+          box-shadow: 0 18px 40px rgba(0, 0, 0, 0.95), 0 0 18px ${brandGlow} !important;
           cursor: grabbing !important;
         }
 
@@ -294,12 +459,12 @@
         }
 
         .pill-drag-handle:hover {
-          color: #38BDF8;
+          color: ${accentColor};
         }
 
         .pill-drag-handle:active, .panel-wrap.dragging .pill-drag-handle {
           cursor: grabbing !important;
-          color: #38BDF8;
+          color: ${accentColor};
         }
 
         .drag-icon {
@@ -330,23 +495,23 @@
 
         .btn-main:hover {
           background: rgba(255, 255, 255, 0.12);
-          color: #38BDF8;
+          color: ${accentColor};
         }
 
         .btn-main:active {
           transform: scale(0.97);
         }
 
-        /* Brand logo/arrow icon */
+        /* Brand icon */
         .brand-icon {
           width: 16px;
           height: 16px;
           fill: none;
-          stroke: #38BDF8;
+          stroke: ${accentColor};
           stroke-width: 2.2;
           stroke-linecap: round;
           stroke-linejoin: round;
-          filter: drop-shadow(0 0 4px rgba(56, 189, 248, 0.5));
+          filter: drop-shadow(0 0 4px ${brandGlow});
           pointer-events: none;
         }
 
@@ -396,10 +561,10 @@
           pointer-events: none;
         }
 
-        /* Quality Dropdown Menu - 100% OPAQUE */
+        /* Dropdown Menu - 100% OPAQUE */
         .menu {
           display: none;
-          width: 220px;
+          width: 230px;
           background: #0f172a !important; /* Solid opaque */
           border: 1px solid rgba(255, 255, 255, 0.22);
           border-radius: 8px;
@@ -449,7 +614,7 @@
         }
 
         .menu-item:hover {
-          background: rgba(56, 189, 248, 0.22);
+          background: ${accentHoverBg};
           color: #FFFFFF;
         }
 
@@ -461,7 +626,7 @@
 
         .item-icon {
           font-size: 12px;
-          color: #38BDF8;
+          color: ${accentColor};
         }
 
         .item-badge {
@@ -474,8 +639,8 @@
         }
 
         .menu-item:hover .item-badge {
-          background: rgba(56, 189, 248, 0.35);
-          color: #E0F2FE;
+          background: ${accentHoverBg};
+          color: #FFFFFF;
         }
 
         .menu-divider {
@@ -509,11 +674,70 @@
         }
       `;
 
+      // Brand icon: musical double-note for audio, download arrow for video
+      const brandIconSvg = isAudio
+        ? `<svg class="brand-icon" viewBox="0 0 24 24">
+             <path d="M9 18V5l12-2v13" />
+             <circle cx="6" cy="18" r="3" fill="currentColor" />
+             <circle cx="18" cy="16" r="3" fill="currentColor" />
+           </svg>`
+        : `<svg class="brand-icon" viewBox="0 0 24 24">
+             <path d="M12 3v12m0 0l-4-4m4 4l4-4M5 19h14" />
+           </svg>`;
+
+      const btnTitle = isAudio ? "Scarica audio con Getly" : "Scarica con Getly";
+      const btnLabel = isAudio ? "Scarica audio" : "Scarica video";
+
+      const menuItems = isAudio
+        ? `
+          <div class="menu-header">Qualità & Formato Audio</div>
+          <button class="menu-item" data-format="audio">
+            <span class="item-left"><span class="item-icon">★</span> Migliore (Auto)</span>
+            <span class="item-badge">Max</span>
+          </button>
+          <button class="menu-item" data-format="audio_mp3">
+            <span class="item-left"><span class="item-icon">🎵</span> MP3 Alta Qualità</span>
+            <span class="item-badge">320k</span>
+          </button>
+          <button class="menu-item" data-format="audio_m4a">
+            <span class="item-left"><span class="item-icon">🎵</span> M4A / AAC Originale</span>
+            <span class="item-badge">M4A</span>
+          </button>
+          <button class="menu-item" data-format="audio_flac">
+            <span class="item-left"><span class="item-icon">🎵</span> FLAC Senza Perdita</span>
+            <span class="item-badge">Lossless</span>
+          </button>
+        `
+        : `
+          <div class="menu-header">Risoluzione & Qualità</div>
+          <button class="menu-item" data-format="best">
+            <span class="item-left"><span class="item-icon">★</span> Migliore (Auto)</span>
+            <span class="item-badge">Max</span>
+          </button>
+          <button class="menu-item" data-format="1080p">
+            <span class="item-left"><span class="item-icon">HD</span> 1080p Full HD</span>
+            <span class="item-badge">MP4</span>
+          </button>
+          <button class="menu-item" data-format="720p">
+            <span class="item-left"><span class="item-icon">HD</span> 720p HD</span>
+            <span class="item-badge">MP4</span>
+          </button>
+          <button class="menu-item" data-format="480p">
+            <span class="item-left"><span class="item-icon">SD</span> 480p SD</span>
+            <span class="item-badge">MP4</span>
+          </button>
+          <div class="menu-divider"></div>
+          <button class="menu-item" data-format="audio">
+            <span class="item-left"><span class="item-icon">🎵</span> Solo Audio</span>
+            <span class="item-badge">MP3 / M4A</span>
+          </button>
+        `;
+
       const template = `
         <style>${styles}</style>
         <div class="panel-wrap" id="panelWrap">
           <!-- Main Pill -->
-          <div class="pill" id="pillBar">
+          <div class="pill ${isAudio ? "audio-pill" : ""}" id="pillBar">
             <!-- Movable Drag Handle -->
             <div class="pill-drag-handle" id="dragHandle" title="Trascina per spostare la barra">
               <svg class="drag-icon" viewBox="0 0 24 24">
@@ -526,16 +750,14 @@
               </svg>
             </div>
 
-            <button class="btn-main" id="btnMain" title="Scarica con Getly">
-              <svg class="brand-icon" viewBox="0 0 24 24">
-                <path d="M12 3v12m0 0l-4-4m4 4l4-4M5 19h14" />
-              </svg>
-              <span id="btnText">Scarica video</span>
+            <button class="btn-main" id="btnMain" title="${btnTitle}">
+              ${brandIconSvg}
+              <span id="btnText">${btnLabel}</span>
             </button>
 
             <div class="pill-divider"></div>
 
-            <button class="btn-dropdown" id="btnDropdown" title="Scegli qualità o solo audio">
+            <button class="btn-dropdown" id="btnDropdown" title="Scegli opzioni di formato e qualità">
               <svg class="arrow-icon" viewBox="0 0 24 24">
                 <path d="M6 9l6 6 6-6" />
               </svg>
@@ -556,28 +778,7 @@
 
           <!-- Quality Dropdown Menu -->
           <div class="menu" id="qualityMenu">
-            <div class="menu-header">Risoluzione & Qualità</div>
-            <button class="menu-item" data-format="best">
-              <span class="item-left"><span class="item-icon">★</span> Migliore (Auto)</span>
-              <span class="item-badge">Max</span>
-            </button>
-            <button class="menu-item" data-format="1080p">
-              <span class="item-left"><span class="item-icon">HD</span> 1080p Full HD</span>
-              <span class="item-badge">MP4</span>
-            </button>
-            <button class="menu-item" data-format="720p">
-              <span class="item-left"><span class="item-icon">HD</span> 720p HD</span>
-              <span class="item-badge">MP4</span>
-            </button>
-            <button class="menu-item" data-format="480p">
-              <span class="item-left"><span class="item-icon">SD</span> 480p SD</span>
-              <span class="item-badge">MP4</span>
-            </button>
-            <div class="menu-divider"></div>
-            <button class="menu-item" data-format="audio">
-              <span class="item-left"><span class="item-icon">🎵</span> Solo Audio</span>
-              <span class="item-badge">MP3 / M4A</span>
-            </button>
+            ${menuItems}
             <!-- Dynamic sniffed streams list if available -->
             <div id="sniffedContainer" style="display: none;">
               <div class="menu-divider"></div>
@@ -642,7 +843,7 @@
         }
       });
 
-      // Hover on video container reveals panel
+      // Hover on video/audio container reveals panel
       const onContainerEnter = () => {
         if (!this.isDismissed && floatingButtonEnabled) {
           this.showPanel();
@@ -668,7 +869,7 @@
       });
 
       // =========================================================================
-      // 2. Drag & Drop System (Movable anywhere on the player)
+      // 2. Drag & Drop System (Movable anywhere on the player or viewport)
       // =========================================================================
       let isDragging = false;
       let hasDragged = false;
@@ -686,14 +887,17 @@
         startPointerX = e.clientX;
         startPointerY = e.clientY;
 
-        const containerRect = container.getBoundingClientRect();
+        const containerRect = this.isFixed
+          ? { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight }
+          : container.getBoundingClientRect();
         const hostRect = this.host.getBoundingClientRect();
 
-        // Convert any right-anchored styling to explicit left/top relative to container
+        // Convert any right/bottom-anchored styling to explicit left/top
         startHostLeft = hostRect.left - containerRect.left;
         startHostTop = hostRect.top - containerRect.top;
 
         this.host.style.setProperty("right", "auto", "important");
+        this.host.style.setProperty("bottom", "auto", "important");
         this.host.style.setProperty("left", `${startHostLeft}px`, "important");
         this.host.style.setProperty("top", `${startHostTop}px`, "important");
 
@@ -719,7 +923,9 @@
           e.preventDefault();
           e.stopPropagation();
 
-          const containerRect = container.getBoundingClientRect();
+          const containerRect = this.isFixed
+            ? { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight }
+            : container.getBoundingClientRect();
           const hostRect = this.host.getBoundingClientRect();
 
           let newLeft = startHostLeft + dx;
@@ -757,14 +963,19 @@
           e.preventDefault();
           e.stopPropagation();
 
-          const containerRect = container.getBoundingClientRect();
+          const containerRect = this.isFixed
+            ? { width: window.innerWidth, height: window.innerHeight }
+            : container.getBoundingClientRect();
           const currentLeft = parseFloat(this.host.style.left) || 8;
           const currentTop = parseFloat(this.host.style.top) || 8;
           const xRatio = currentLeft / Math.max(containerRect.width, 1);
           const yRatio = currentTop / Math.max(containerRect.height, 1);
 
           try {
-            localStorage.setItem("getly_floating_panel_pos", JSON.stringify({ xRatio, yRatio }));
+            localStorage.setItem(
+              `getly_floating_panel_pos_${this.mediaType}`,
+              JSON.stringify({ xRatio, yRatio })
+            );
           } catch (_) {}
         }
       };
@@ -795,7 +1006,7 @@
         e.stopPropagation();
         e.preventDefault();
         if (Date.now() - lastDragEndTime < 250) return;
-        this.triggerDownload("best");
+        this.triggerDownload(this.mediaType === "audio" ? "audio" : "best");
       });
 
       btnDropdown.addEventListener("click", (e) => {
@@ -816,7 +1027,7 @@
         btn.addEventListener("click", (e) => {
           e.stopPropagation();
           e.preventDefault();
-          const format = btn.getAttribute("data-format") || "best";
+          const format = btn.getAttribute("data-format") || (this.mediaType === "audio" ? "audio" : "best");
           this.isMenuOpen = false;
           qualityMenu.classList.remove("open");
           this.triggerDownload(format);
@@ -859,9 +1070,10 @@
         streams.forEach((item) => {
           const itemBtn = document.createElement("button");
           itemBtn.className = "menu-item";
+          const isAudioBadge = (item.formatBadge || "").toLowerCase() === "mp3" || (item.formatBadge || "").toLowerCase() === "audio";
           itemBtn.innerHTML = `
             <span class="item-left">
-              <span class="item-icon">⚡</span>
+              <span class="item-icon">${isAudioBadge ? "🎵" : "⚡"}</span>
               <span style="max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${item.filename}</span>
             </span>
             <span class="item-badge">${item.formatBadge || "MEDIA"}</span>
@@ -892,26 +1104,29 @@
     }
 
     triggerDownload(format) {
-      const targetUrl = resolveVideoTargetUrl(this.video);
-      const title = extractVideoTitle();
+      const targetUrl = resolveMediaTargetUrl(this.media);
+      const title = extractMediaTitle(this.media, this.mediaType);
 
       const btnText = this.shadow.getElementById("btnText");
+      const defaultText = this.mediaType === "audio" ? "Scarica audio" : "Scarica video";
       if (btnText) btnText.textContent = "Invio...";
 
       chrome.runtime.sendMessage(
         {
-          type: "DOWNLOAD_VIDEO_FROM_PAGE",
+          type: "DOWNLOAD_MEDIA_FROM_PAGE",
+          mediaType: this.mediaType,
           url: targetUrl,
           title: title,
           format: format,
           referer: window.location.href,
-          videoSrc: this.video.currentSrc || this.video.src || "",
+          mediaSrc: this.media.currentSrc || this.media.src || "",
         },
         (response) => {
-          if (btnText) btnText.textContent = "Scarica video";
+          if (btnText) btnText.textContent = defaultText;
 
           if (response && response.success) {
-            this.showToast(format === "audio" ? "🎵 Audio inviato!" : "✓ Inviato a Getly!");
+            const isAudioDownload = this.mediaType === "audio" || (format && format.startsWith("audio"));
+            this.showToast(isAudioDownload ? "🎵 Audio inviato a Getly!" : "✓ Inviato a Getly!");
           } else {
             const err = response && response.error ? response.error : "Getly offline";
             this.showToast(`Errore: ${err}`, true);
@@ -968,43 +1183,83 @@
   }
 
   function toggleAllPanelsVisibility(enabled) {
-    document.querySelectorAll(".getly-video-panel-host").forEach((host) => {
+    document.querySelectorAll(".getly-media-panel-host").forEach((host) => {
       host.style.display = enabled ? "block" : "none";
     });
   }
 
   /**
-   * Scans document for video elements and attaches the floating panel
+   * Evaluates a media element (video or audio) and attaches a floating panel if appropriate
    */
-  function scanAndAttachVideos() {
-    const videos = document.querySelectorAll("video");
-    videos.forEach((video) => {
-      // Ignore tiny icons, hidden videos, or tracking pixels
-      const rect = video.getBoundingClientRect();
-      const isVisible = rect.width >= 160 || rect.height >= 100 || video.offsetWidth >= 160;
+  function handleMediaElement(media) {
+    if (!media || !(media instanceof HTMLMediaElement)) return;
+    if (activePanels.has(media)) return;
 
-      // Special allowance on YouTube main player
+    const isAudio = media.tagName.toLowerCase() === "audio";
+    const isVideo = media.tagName.toLowerCase() === "video";
+    const type = determineMediaType(media);
+
+    if (isVideo) {
+      const rect = media.getBoundingClientRect();
+      const isVisible = rect.width >= 160 || rect.height >= 100 || media.offsetWidth >= 160;
       const isYouTubePlayer =
         window.location.hostname.includes("youtube.com") &&
-        video.closest("#movie_player, .html5-video-player") !== null;
+        media.closest("#movie_player, .html5-video-player") !== null;
+      const isMusicSite = type === "audio";
 
-      if (!isVisible && !isYouTubePlayer) {
+      if (!isVisible && !isYouTubePlayer && !isMusicSite) {
         return;
       }
+    } else if (isAudio) {
+      // Audio element: attach if it has visible controls, or has source, or is currently playing
+      const hasSrc = Boolean(media.src || media.currentSrc || media.querySelector("source"));
+      const isPlaying = !media.paused && media.currentTime > 0;
+      const hasControls = media.hasAttribute("controls");
 
-      if (!activePanels.has(video)) {
-        const panel = new VideoPanelInstance(video);
-        activePanels.set(video, panel);
+      if (!hasSrc && !isPlaying && !hasControls) {
+        return;
       }
+    }
+
+    const panel = new MediaPanelInstance(media, type);
+    activePanels.set(media, panel);
+  }
+
+  /**
+   * Scans document for both video and audio elements
+   */
+  function scanAndAttachMedia() {
+    const mediaElements = document.querySelectorAll("video, audio");
+    mediaElements.forEach((el) => {
+      handleMediaElement(el);
     });
   }
 
   // Initial scan
-  scanAndAttachVideos();
+  scanAndAttachMedia();
 
-  // Periodic and MutationObserver monitoring for dynamically loaded videos (SPA, YouTube navigation)
+  // Real-time playback event listener (capture phase catches ANY audio/video starting playback)
+  const onMediaPlaybackStarted = (e) => {
+    const target = e.target;
+    if (!target || !(target instanceof HTMLMediaElement)) return;
+
+    let panel = activePanels.get(target);
+    if (!panel) {
+      handleMediaElement(target);
+      panel = activePanels.get(target);
+    }
+    if (panel) {
+      panel.showPanel();
+      panel.scheduleHide(panel.mediaType === "audio" ? 6000 : 3500);
+    }
+  };
+
+  document.addEventListener("play", onMediaPlaybackStarted, true);
+  document.addEventListener("playing", onMediaPlaybackStarted, true);
+
+  // Periodic and MutationObserver monitoring for dynamically loaded players (SPA, YouTube navigation)
   const observer = new MutationObserver(() => {
-    scanAndAttachVideos();
+    scanAndAttachMedia();
   });
 
   observer.observe(document.body || document.documentElement, {
@@ -1012,14 +1267,14 @@
     subtree: true,
   });
 
-  // YouTube SPA navigation events
+  // SPA navigation events
   window.addEventListener("yt-navigate-finish", () => {
-    setTimeout(scanAndAttachVideos, 800);
+    setTimeout(scanAndAttachMedia, 800);
   });
   window.addEventListener("spfdone", () => {
-    setTimeout(scanAndAttachVideos, 800);
+    setTimeout(scanAndAttachMedia, 800);
   });
 
-  // Re-scan periodically at low frequency (every 2.5s) to catch delayed video player rendering
-  setInterval(scanAndAttachVideos, 2500);
+  // Re-scan periodically at low frequency (every 2.5s) to catch delayed audio/video rendering
+  setInterval(scanAndAttachMedia, 2500);
 })();
