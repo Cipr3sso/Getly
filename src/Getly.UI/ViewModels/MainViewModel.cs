@@ -563,6 +563,33 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
+    public async Task DownloadNowAsync(TaskItemViewModel? task)
+    {
+        var target = task ?? SelectedTask;
+        if (target is null) return;
+        try
+        {
+            await _ipcClient.DownloadNowAsync(target.TaskId, pauseOthers: true);
+            foreach (var other in Tasks.Where(t => t.TaskId != target.TaskId && t.IsActive && !t.IsPaused))
+            {
+                other.IsActive = false;
+                other.IsPaused = true;
+                other.StatusDisplay = "In pausa";
+            }
+            target.Status = "DOWNLOADING";
+            target.IsActive = true;
+            target.IsPaused = false;
+            target.StatusDisplay = "In download";
+            StatusMessage = $"Priorità assoluta assegnata a '{target.Filename}'. Download avviato.";
+            TaskNotificationTriggered?.Invoke(target);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Errore avvio prioritario: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
     public async Task PauseAllTasksAsync()
     {
         var targets = Tasks.Where(t => t.IsActive && !t.IsPaused).ToList();

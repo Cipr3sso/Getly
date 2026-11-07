@@ -295,6 +295,11 @@ public sealed class IpcClient : IAsyncDisposable, IDisposable
         await InvokeAsync("task.resume", new { task_id = taskId }, cancellationToken: cancellationToken);
     }
 
+    public async Task DownloadNowAsync(string taskId, bool pauseOthers = true, CancellationToken cancellationToken = default)
+    {
+        await InvokeAsync("task.download_now", new { task_id = taskId, pause_others = pauseOthers }, cancellationToken: cancellationToken);
+    }
+
     public async Task DeleteTaskAsync(string taskId, bool deleteFiles = false, bool permanent = false, CancellationToken cancellationToken = default)
     {
         await InvokeAsync("task.delete", new { task_id = taskId, delete_files = deleteFiles, permanent = permanent }, cancellationToken: cancellationToken);

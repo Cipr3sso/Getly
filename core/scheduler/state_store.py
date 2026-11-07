@@ -225,6 +225,13 @@ class StateStore:
             """, (new_url, task_id))
             conn.commit()
 
+    def update_task_priority(self, task_id: str, priority: int) -> None:
+        with self._get_connection() as conn:
+            conn.execute("""
+            UPDATE tasks SET priority = ? WHERE task_id = ?;
+            """, (priority, task_id))
+            conn.commit()
+
     def save_chunks(self, task_id: str, chunks: List[Chunk]) -> None:
         with self._get_connection() as conn:
             conn.executemany("""

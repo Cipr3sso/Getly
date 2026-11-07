@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Callable, Any, Tuple
 import urllib.parse
 
 from core.network.session_pool import MultiInterfaceSessionPool
+from core.network.interface_detector import InterfaceDetector
 from core.cnl.models import CNLDecryptedPackage
 from core.engine.downloader import DownloadEngine
 from core.engine.media_extractor import is_media_stream_url, MediaExtractor
@@ -49,6 +50,7 @@ class QueueManager:
         self._active_engines: Dict[str, DownloadEngine] = {}
         self._semaphore = asyncio.Semaphore(max_active_tasks)
         self._manager_task: Optional[asyncio.Task] = None
+        self._network_watchdog_task: Optional[asyncio.Task] = None
         self._is_running = False
 
         # Confirmation threshold and auto-categorization settings
@@ -75,6 +77,7 @@ class QueueManager:
 
         self._is_running = True
         self._manager_task = asyncio.create_task(self._process_queue())
+        self._network_watchdog_task = asyncio.create_task(self._network_recovery_loop())
 
         # Load all tasks from DB into memory cache
         all_db_tasks = self.state_store.get_all_tasks()
@@ -922,12 +925,99 @@ class QueueManager:
         self._is_running = False
         if self._manager_task:
             self._manager_task.cancel()
+        if self._network_watchdog_task:
+            self._network_watchdog_task.cancel()
 
         for task_id, engine in list(self._active_engines.items()):
             await engine.cancel()
 
         self._active_engines.clear()
         logger.info("QueueManager stopped.")
+
+    async def download_now(self, task_id: str, pause_others: bool = True) -> bool:
+        """
+        Prioritizes task_id:
+        1. Pauses other downloading / pending tasks if pause_others is True.
+        2. Elevates priority of task_id to 1 (top priority).
+        3. Starts or resumes task_id immediately.
+        """
+        task = self.get_task(task_id)
+        if not task:
+            return False
+
+        if pause_others:
+            for other_id, other_task in list(self._tasks.items()):
+                if other_id != task_id and other_task.status in (DownloadStatus.DOWNLOADING, DownloadStatus.PENDING):
+                    try:
+                        await self.pause_task(other_id)
+                    except Exception as exc:
+                        logger.debug("Failed pausing other task %s in download_now: %s", other_id, exc)
+
+        task.priority = 1
+        try:
+            self.state_store.update_task_priority(task_id, 1)
+        except Exception:
+            pass
+
+        if task.status != DownloadStatus.DOWNLOADING:
+            await self.resume_task(task_id)
+
+        logger.info("Executed download_now for task %s (priority: 1, pause_others: %s)", task_id, pause_others)
+        return True
+
+    @staticmethod
+    def _is_network_error(error_msg: Optional[str]) -> bool:
+        """Determines if an error message reflects a network/connectivity disconnection."""
+        if not error_msg:
+            return False
+        msg = error_msg.lower()
+        keywords = (
+            "network", "connection", "connector", "timeout", "timed out",
+            "getaddrinfo", "host", "reset", "abort", "refused", "unreachable",
+            "disconnected", "offline", "socket", "errno 11001", "winerror 1225",
+            "winerror 121", "winerror 64", "remote host", "semaphor", "eof",
+            "ssl", "tls", "interrupted", "broken pipe", "no route to host",
+            "gaierror", "clientconnectorerror", "clientconnectionerror", "servertimeouterror"
+        )
+        return any(kw in msg for kw in keywords)
+
+    async def _network_recovery_loop(self) -> None:
+        """
+        Background watchdog: monitors network interface availability and automatically
+        resumes network-interrupted downloads when internet connectivity is restored.
+        """
+        while self._is_running:
+            try:
+                await asyncio.sleep(5.0)
+                if not self._is_running:
+                    break
+
+                adapters = InterfaceDetector.get_active_internet_adapters()
+                primary_ip = InterfaceDetector.get_system_primary_ip()
+                has_internet = len(adapters) > 0 and primary_ip is not None
+
+                if has_internet:
+                    failed_network_tasks = [
+                        t for t in self.get_all_tasks()
+                        if t.status == DownloadStatus.FAILED and self._is_network_error(t.error_message)
+                    ]
+
+                    for task in failed_network_tasks:
+                        retries = getattr(task, "_network_auto_retries", 0)
+                        if retries < 20:
+                            task._network_auto_retries = retries + 1
+                            logger.info(
+                                "NetworkWatchdog: Internet connection active (%d adapters). Auto-resuming interrupted task '%s' (Attempt %d/20)",
+                                len(adapters),
+                                task.filename or task.task_id,
+                                task._network_auto_retries,
+                            )
+                            await self.resume_task(task.task_id)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.debug("NetworkWatchdog loop error: %s", exc)
 
     async def clear_inactive_tasks(self) -> int:
         """Removes all COMPLETED, FAILED, CANCELLED, and 0-byte PAUSED tasks from memory and DB."""

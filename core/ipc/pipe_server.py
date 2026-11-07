@@ -84,6 +84,7 @@ class NamedPipeServer:
             "task.add": self._rpc_task_add,
             "task.pause": self._rpc_task_pause,
             "task.resume": self._rpc_task_resume,
+            "task.download_now": self._rpc_task_download_now,
             "task.delete": self._rpc_task_delete,
             "task.restore": self._rpc_task_restore,
             "task.clear_deleted": self._rpc_task_clear_deleted,
@@ -314,6 +315,14 @@ class NamedPipeServer:
         if not task_id:
             raise ValueError("Missing 'task_id' parameter")
         success = await self.queue_manager.resume_task(task_id)
+        return {"success": success, "task_id": task_id}
+
+    async def _rpc_task_download_now(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        task_id = params.get("task_id")
+        if not task_id:
+            raise ValueError("Missing 'task_id' parameter")
+        pause_others = bool(params.get("pause_others", True))
+        success = await self.queue_manager.download_now(task_id, pause_others=pause_others)
         return {"success": success, "task_id": task_id}
 
     async def _rpc_task_delete(self, params: Dict[str, Any]) -> Dict[str, Any]:

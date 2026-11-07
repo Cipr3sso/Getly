@@ -245,6 +245,8 @@
                                     ToolTipService.ToolTip="{x:Bind ErrorToolTip, Mode=OneWay}">
                                     <Border.ContextFlyout>
                                         <MenuFlyout>
+                                            <MenuFlyoutItem Text="Scarica ora (Priorità assoluta)" Icon="Forward" Click="OnDownloadNowClick" Visibility="{x:Bind CanDownloadNow, Mode=OneWay}" />
+                                            <MenuFlyoutSeparator Visibility="{x:Bind CanDownloadNow, Mode=OneWay}" />
                                             <MenuFlyoutItem Text="Ripristina download" Icon="Undo" Click="OnRestoreTaskClick" Visibility="{x:Bind IsDeleted, Mode=OneWay}" />
                                             <MenuFlyoutItem Text="Elimina definitivamente" Icon="Delete" Click="OnPermanentDeleteClick" Visibility="{x:Bind IsDeleted, Mode=OneWay}" />
                                             <MenuFlyoutItem Text="Avvia / Riprendi" Icon="Play" Click="OnResumeTaskClick" Visibility="{x:Bind CanPauseOrResume, Mode=OneWay}" />

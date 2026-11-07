@@ -79,15 +79,19 @@ public partial class TaskItemViewModel : ObservableObject
 
     public bool CanPauseOrResume => !IsDeleted && !IsCompleted;
 
+    public bool CanDownloadNow => !IsDeleted && !IsCompleted;
+
     partial void OnIsCompletedChanged(bool value)
     {
         OnPropertyChanged(nameof(CanPauseOrResume));
+        OnPropertyChanged(nameof(CanDownloadNow));
     }
 
     partial void OnIsDeletedChanged(bool value)
     {
         OnPropertyChanged(nameof(IsNotDeleted));
         OnPropertyChanged(nameof(CanPauseOrResume));
+        OnPropertyChanged(nameof(CanDownloadNow));
     }
 
     [ObservableProperty]

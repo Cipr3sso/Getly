@@ -587,3 +587,37 @@ async def test_queue_manager_preliminary_size_and_category(tmp_path: Path):
     assert qm._task_queue.qsize() == 1
 
 
+@pytest.mark.asyncio
+async def test_queue_manager_download_now_and_network_error_detection(tmp_path: Path):
+    from core.scheduler.task import DownloadStatus
+    from core.scheduler.state_store import StateStore
+    from core.scheduler.queue_manager import QueueManager
+
+    store = StateStore(tmp_path / "prio_test.db")
+    pool = MultiInterfaceSessionPool(adapters=[NetworkAdapter(name="loop", ip="127.0.0.1")])
+    qm = QueueManager(session_pool=pool, state_store=store, default_download_dir=tmp_path)
+
+    # 1. Test _is_network_error helper
+    assert qm._is_network_error("ClientConnectorError: Cannot connect to host") is True
+    assert qm._is_network_error("ServerTimeoutError: Timeout on socket read") is True
+    assert qm._is_network_error("WinError 1225: Network unreachable") is True
+    assert qm._is_network_error("HTTP 404: Not Found") is False
+    assert qm._is_network_error("HTTP 401: Unauthorized") is False
+    assert qm._is_network_error(None) is False
+
+    # 2. Add two tasks: task1 (running/pending), task2 (paused)
+    t1 = await qm.add_url("https://example.com/file1.bin", filename="file1.bin", auto_start=False)
+    t2 = await qm.add_url("https://example.com/file2.bin", filename="file2.bin", auto_start=False)
+    t1.status = DownloadStatus.DOWNLOADING
+    t2.status = DownloadStatus.PAUSED
+
+    # 3. Execute download_now on t2
+    res = await qm.download_now(t2.task_id, pause_others=True)
+    assert res is True
+    assert t2.priority == 1
+    assert t2.status == DownloadStatus.PENDING
+    # t1 should be paused by download_now
+    assert t1.status == DownloadStatus.PAUSED
+
+
+

@@ -172,6 +172,11 @@ async def test_rpc_tasks_lifecycle(tmp_path: Path):
         pause_resp = await call_rpc("task.pause", {"task_id": tid})
         assert pause_resp["result"]["success"] is True
 
+        # 4b. task.download_now (priority elevation & immediate start)
+        dl_now_resp = await call_rpc("task.download_now", {"task_id": tid, "pause_others": True})
+        assert dl_now_resp["result"]["success"] is True
+        assert qm.get_task(tid).priority == 1
+
         # 5. task.update_url
         update_resp = await call_rpc(
             "task.update_url",

@@ -958,6 +958,15 @@ public sealed partial class MainWindow : Window
         return ViewModel.SelectedTask;
     }
 
+    private void OnDownloadNowClick(object sender, RoutedEventArgs e)
+    {
+        var task = GetTask(sender);
+        if (task != null)
+        {
+            ViewModel.DownloadNowCommand.Execute(task);
+        }
+    }
+
     private void OnResumeTaskClick(object sender, RoutedEventArgs e)
     {
         var task = GetTask(sender);
