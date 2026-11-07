@@ -413,6 +413,15 @@ public sealed partial class MainWindow : Window
 
         if (args.SelectedItemContainer is NavigationViewItem item && item.Tag is string tag)
         {
+            if (tag == "SiteGrabber")
+            {
+                // Restore selection so sidebar highlight remains on previous category
+                sender.SelectedItem = sender.MenuItems.OfType<NavigationViewItem>().FirstOrDefault(i => (i.Tag as string) == ViewModel.SelectedNavCategory)
+                    ?? sender.MenuItems.OfType<NavigationViewItem>().First();
+                OnSiteGrabberClick(this, new RoutedEventArgs());
+                return;
+            }
+
             if (tag == "Network")
             {
                 SwitchToView("NETWORK");
@@ -987,6 +996,342 @@ public sealed partial class MainWindow : Window
                 ViewModel.StatusMessage = startPaused
                     ? $"Aggiunti in coda {selectedItems.Count} download batch."
                     : $"Avviati {selectedItems.Count} download batch.";
+            }
+        }
+        finally
+        {
+            _isDialogOpen = false;
+        }
+    }
+
+    private async void OnSiteGrabberClick(object sender, RoutedEventArgs e)
+    {
+        if (_isDialogOpen) return;
+        _isDialogOpen = true;
+
+        try
+        {
+            var grabbedItems = new ObservableCollection<GrabbedResourceItem>();
+
+            var urlTextBox = new TextBox
+            {
+                PlaceholderText = "Incolla l'URL del sito web o forum (es. https://fitgirl-repacks.site/...)",
+                Width = 540
+            };
+
+            var depthCombo = new ComboBox
+            {
+                Width = 320,
+                SelectedIndex = 0
+            };
+            depthCombo.Items.Add(new ComboBoxItem { Content = "Livello 1: Solo questa pagina (Veloce)", Tag = 1 });
+            depthCombo.Items.Add(new ComboBoxItem { Content = "Livello 2: Segui link interni (1 salto - Consigliato per paste/hoster)", Tag = 2 });
+            depthCombo.Items.Add(new ComboBoxItem { Content = "Livello 3: Esplorazione profonda (2 salti, fino a 40 pagine)", Tag = 3 });
+
+            var scanButton = new Button
+            {
+                Content = "Avvia Scansione",
+                Style = Application.Current.Resources["AccentButtonStyle"] as Style,
+                HorizontalAlignment = HorizontalAlignment.Left
+            };
+
+            var progressBar = new ProgressBar
+            {
+                IsIndeterminate = true,
+                Visibility = Visibility.Collapsed,
+                Width = 540,
+                Margin = new Thickness(0, 4, 0, 4)
+            };
+
+            var statusTextBlock = new TextBlock
+            {
+                Text = "Inserisci un URL e seleziona la profondità per catturare i file scaricabili.",
+                FontSize = 11,
+                Foreground = GetThemeSecondaryBrush(),
+                VerticalAlignment = VerticalAlignment.Center,
+                TextWrapping = TextWrapping.Wrap
+            };
+
+            var countTextBlock = new TextBlock
+            {
+                Text = "0 risorse trovate",
+                FontSize = 11,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Foreground = GetThemePrimaryBrush(),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 4, 0, 0)
+            };
+
+            void UpdateCounts()
+            {
+                int selectedCount = grabbedItems.Count(i => i.IsSelected);
+                countTextBlock.Text = $"Trovate {grabbedItems.Count} risorse ({selectedCount} selezionate)";
+            }
+
+            // Quick filter buttons
+            var btnAll = new Button { Content = "Tutti", FontSize = 11, Padding = new Thickness(8, 2, 8, 2) };
+            var btnArchives = new Button { Content = "📦 Solo Archivi", FontSize = 11, Padding = new Thickness(8, 2, 8, 2) };
+            var btnDocs = new Button { Content = "📄 Documenti", FontSize = 11, Padding = new Thickness(8, 2, 8, 2) };
+            var btnMedia = new Button { Content = "🎬 Media", FontSize = 11, Padding = new Thickness(8, 2, 8, 2) };
+            var btnSoftware = new Button { Content = "💻 Software", FontSize = 11, Padding = new Thickness(8, 2, 8, 2) };
+            var btnInvert = new Button { Content = "Inverti", FontSize = 11, Padding = new Thickness(8, 2, 8, 2) };
+            var btnNone = new Button { Content = "Nessuno", FontSize = 11, Padding = new Thickness(8, 2, 8, 2) };
+
+            void ApplyFilter(Func<GrabbedResourceItem, bool> predicate)
+            {
+                foreach (var item in grabbedItems)
+                {
+                    item.IsSelected = predicate(item);
+                }
+                UpdateCounts();
+            }
+
+            btnAll.Click += (s, a) => ApplyFilter(_ => true);
+            btnNone.Click += (s, a) => ApplyFilter(_ => false);
+            btnInvert.Click += (s, a) => ApplyFilter(it => !it.IsSelected);
+            btnArchives.Click += (s, a) => ApplyFilter(it =>
+                it.Category == "Compressi" ||
+                it.Filename.EndsWith(".rar", StringComparison.OrdinalIgnoreCase) ||
+                it.Filename.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
+                it.Filename.EndsWith(".7z", StringComparison.OrdinalIgnoreCase) ||
+                it.Filename.EndsWith(".bin", StringComparison.OrdinalIgnoreCase) ||
+                it.Filename.EndsWith(".iso", StringComparison.OrdinalIgnoreCase));
+            btnDocs.Click += (s, a) => ApplyFilter(it => it.Category == "Documenti");
+            btnMedia.Click += (s, a) => ApplyFilter(it => it.Category == "Video" || it.Category == "Audio" || it.Category == "Immagini");
+            btnSoftware.Click += (s, a) => ApplyFilter(it => it.Category == "Software");
+
+            var filterPanel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 6,
+                Visibility = Visibility.Collapsed
+            };
+            filterPanel.Children.Add(btnAll);
+            filterPanel.Children.Add(btnArchives);
+            filterPanel.Children.Add(btnDocs);
+            filterPanel.Children.Add(btnMedia);
+            filterPanel.Children.Add(btnSoftware);
+            filterPanel.Children.Add(btnInvert);
+            filterPanel.Children.Add(btnNone);
+
+            var itemsListView = new ListView
+            {
+                ItemsSource = grabbedItems,
+                SelectionMode = ListViewSelectionMode.None,
+                Height = 190,
+                Width = 540,
+                BorderThickness = new Thickness(1),
+                BorderBrush = GetThemeBorderBrush(),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(4),
+                Visibility = Visibility.Collapsed
+            };
+
+            if (RootGrid.Resources.TryGetValue("GrabbedResourceItemTemplate", out var templateObj) && templateObj is DataTemplate dt)
+            {
+                itemsListView.ItemTemplate = dt;
+            }
+
+            var destPathTextBox = new TextBox
+            {
+                Text = ViewModel.DefaultDownloadDir,
+                Width = 430
+            };
+
+            var browseDestButton = new Button
+            {
+                Content = "Sfoglia...",
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            browseDestButton.Click += async (s, a) =>
+            {
+                try
+                {
+                    var picker = new FolderPicker();
+                    var hwnd = WindowNative.GetWindowHandle(this);
+                    InitializeWithWindow.Initialize(picker, hwnd);
+                    picker.FileTypeFilter.Add("*");
+                    var folder = await picker.PickSingleFolderAsync();
+                    if (folder != null)
+                    {
+                        destPathTextBox.Text = folder.Path;
+                    }
+                }
+                catch { }
+            };
+
+            var destRow = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 8,
+                Children = { destPathTextBox, browseDestButton }
+            };
+
+            var organizeByCatBox = new CheckBox
+            {
+                Content = "Organizza automaticamente in sottocartelle (Compressi, Documenti, Video, ecc.)",
+                IsChecked = true,
+                FontSize = 11
+            };
+
+            var destPanel = new StackPanel
+            {
+                Spacing = 6,
+                Visibility = Visibility.Collapsed,
+                Children =
+                {
+                    new TextBlock { Text = "Cartella di salvataggio:", FontSize = 11, Foreground = GetThemeSecondaryBrush() },
+                    destRow,
+                    organizeByCatBox
+                }
+            };
+
+            scanButton.Click += async (s, a) =>
+            {
+                string rawUrl = urlTextBox.Text?.Trim() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(rawUrl) || (!rawUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && !rawUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
+                {
+                    statusTextBlock.Text = "Inserisci un URL valido (deve iniziare con http:// o https://).";
+                    return;
+                }
+
+                scanButton.IsEnabled = false;
+                progressBar.Visibility = Visibility.Visible;
+                statusTextBlock.Text = "Scansione del sito in corso... Seguo i link e catturo le risorse...";
+
+                int depth = 1;
+                if (depthCombo.SelectedItem is ComboBoxItem cbi && cbi.Tag is int d)
+                {
+                    depth = d;
+                }
+                int maxPages = depth == 1 ? 1 : (depth == 2 ? 20 : 40);
+
+                try
+                {
+                    var grabResult = await ViewModel.IpcClient.GrabSiteAsync(rawUrl, depth: depth, maxPages: maxPages, timeoutMs: 90000);
+                    grabbedItems.Clear();
+
+                    foreach (var r in grabResult.Items)
+                    {
+                        grabbedItems.Add(new GrabbedResourceItem
+                        {
+                            Url = r.Url,
+                            Filename = r.Filename,
+                            Category = r.Category,
+                            SourceTag = r.SourceTag,
+                            IsSelected = true
+                        });
+                    }
+
+                    if (grabbedItems.Count > 0)
+                    {
+                        statusTextBlock.Text = $"Scansione completata: trovati {grabbedItems.Count} file scaricabili.";
+                        itemsListView.Visibility = Visibility.Visible;
+                        filterPanel.Visibility = Visibility.Visible;
+                        destPanel.Visibility = Visibility.Visible;
+                        countTextBlock.Visibility = Visibility.Visible;
+                        UpdateCounts();
+                    }
+                    else
+                    {
+                        statusTextBlock.Text = "Nessun file scaricabile trovato nella pagina o nei link esplorati.";
+                        itemsListView.Visibility = Visibility.Collapsed;
+                        filterPanel.Visibility = Visibility.Collapsed;
+                        destPanel.Visibility = Visibility.Collapsed;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    statusTextBlock.Text = $"Errore durante la scansione: {ex.Message}";
+                }
+                finally
+                {
+                    scanButton.IsEnabled = true;
+                    progressBar.Visibility = Visibility.Collapsed;
+                }
+            };
+
+            var scanOptionsRow = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 10,
+                Children =
+                {
+                    new StackPanel
+                    {
+                        Spacing = 4,
+                        Children =
+                        {
+                            new TextBlock { Text = "Profondità di scansione:", FontSize = 11, Foreground = GetThemeSecondaryBrush() },
+                            depthCombo
+                        }
+                    },
+                    new StackPanel
+                    {
+                        VerticalAlignment = VerticalAlignment.Bottom,
+                        Children = { scanButton }
+                    }
+                }
+            };
+
+            var dialogContent = new StackPanel
+            {
+                Spacing = 10,
+                Width = 540,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = "Scansiona un sito web per estrarre tutti i file scaricabili e pacchetti divisi (es. FitGirl, forum, siti paste):",
+                        FontSize = 12,
+                        Foreground = GetThemeSecondaryBrush()
+                    },
+                    urlTextBox,
+                    scanOptionsRow,
+                    progressBar,
+                    statusTextBlock,
+                    filterPanel,
+                    countTextBlock,
+                    itemsListView,
+                    destPanel
+                }
+            };
+
+            var dialog = new ContentDialog
+            {
+                Title = "Site Grabber",
+                PrimaryButtonText = "Scarica Selezionati",
+                SecondaryButtonText = "Accoda in Pausa",
+                CloseButtonText = "Chiudi",
+                DefaultButton = ContentDialogButton.Primary,
+                Content = dialogContent
+            };
+
+            PrepareDialog(dialog);
+
+            var dialogResult = await dialog.ShowAsync();
+            var selectedItems = grabbedItems.Where(i => i.IsSelected).ToList();
+
+            if ((dialogResult == ContentDialogResult.Primary || dialogResult == ContentDialogResult.Secondary) && selectedItems.Count > 0)
+            {
+                bool startPaused = dialogResult == ContentDialogResult.Secondary;
+                string baseDir = string.IsNullOrWhiteSpace(destPathTextBox.Text) ? ViewModel.DefaultDownloadDir : destPathTextBox.Text;
+                bool organize = organizeByCatBox.IsChecked == true;
+
+                foreach (var item in selectedItems)
+                {
+                    string finalDest = baseDir;
+                    if (organize && !string.IsNullOrWhiteSpace(item.Category))
+                    {
+                        finalDest = System.IO.Path.Combine(baseDir, item.Category);
+                    }
+                    await ViewModel.AddDownloadWithParamsAsync(item.Url, item.Category, startPaused: startPaused, filename: item.Filename, destDir: finalDest);
+                }
+
+                ViewModel.StatusMessage = startPaused
+                    ? $"Accodati in pausa {selectedItems.Count} download da Site Grabber."
+                    : $"Avviati {selectedItems.Count} download da Site Grabber.";
             }
         }
         finally

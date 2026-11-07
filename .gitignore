@@ -48,4 +48,14 @@ htmlcov/
 # OS artifacts
 Thumbs.db
 [Dd]esktop.ini
+
+# Media and archive downloads
+*.m4a
+*.mp3
+*.mp4
+*.rar
+*.zip
+*.bin
+*.part
+
 .DS_Store

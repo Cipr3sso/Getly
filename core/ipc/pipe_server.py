@@ -97,6 +97,7 @@ class NamedPipeServer:
             "system.set_settings": self._rpc_system_set_settings,
             "system.health_check": self._rpc_system_health_check,
             "media.extract_info": self._rpc_media_extract_info,
+            "site.grab": self._rpc_site_grab,
         }
 
     @property
@@ -498,6 +499,35 @@ class NamedPipeServer:
         if not info:
             return {"success": False, "error": "Impossibile estrarre i metadati dal flusso multimediale", "info": None}
         return {"success": True, "error": None, "info": info}
+
+    async def _rpc_site_grab(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Crawls a website or web page up to the requested depth, discovering
+        all downloadable files and media assets.
+        """
+        url = params.get("url")
+        if not url or not isinstance(url, str):
+            raise ValueError("Parametro 'url' mancante o non valido")
+
+        depth = int(params.get("depth", 1))
+        max_pages = int(params.get("max_pages", 40))
+
+        from core.engine.site_grabber import SiteGrabber
+        grabber = SiteGrabber()
+        resources = await grabber.crawl(url, depth=depth, max_pages=max_pages)
+
+        return {
+            "items": [
+                {
+                    "url": r.url,
+                    "filename": r.filename,
+                    "category": r.category,
+                    "source_tag": r.source_tag,
+                }
+                for r in resources
+            ],
+            "total": len(resources),
+        }
 
 
 # =============================================================================

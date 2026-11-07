@@ -110,3 +110,71 @@ async def test_site_grabber_extraction_and_classification(mock_html):
     finally:
         await runner.cleanup()
 
+
+@pytest.mark.asyncio
+async def test_site_grabber_crawl_depth():
+    page_1_html = """
+    <html><body>
+        <h1>Page 1</h1>
+        <a href="/file1.zip">File 1</a>
+        <a href="/subpage1.html">Subpage 1</a>
+    </body></html>
+    """
+
+    page_2_html = """
+    <html><body>
+        <h1>Subpage 1</h1>
+        <a href="/file2.rar">File 2</a>
+        <a href="/subpage2.html">Subpage 2</a>
+    </body></html>
+    """
+
+    page_3_html = """
+    <html><body>
+        <h1>Subpage 2</h1>
+        <a href="/file3.7z">File 3</a>
+    </body></html>
+    """
+
+    async def h1(req): return web.Response(text=page_1_html, content_type="text/html")
+    async def h2(req): return web.Response(text=page_2_html, content_type="text/html")
+    async def h3(req): return web.Response(text=page_3_html, content_type="text/html")
+
+    app = web.Application()
+    app.router.add_get("/", h1)
+    app.router.add_get("/subpage1.html", h2)
+    app.router.add_get("/subpage2.html", h3)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    port = site._server.sockets[0].getsockname()[1]
+    base_url = f"http://127.0.0.1:{port}/"
+
+    try:
+        grabber = SiteGrabber()
+
+        # Depth 1: should only discover file1.zip
+        res_d1 = await grabber.crawl(base_url, depth=1)
+        urls_d1 = [r.url for r in res_d1]
+        assert f"http://127.0.0.1:{port}/file1.zip" in urls_d1
+        assert f"http://127.0.0.1:{port}/file2.rar" not in urls_d1
+
+        # Depth 2: should discover file1.zip and file2.rar
+        res_d2 = await grabber.crawl(base_url, depth=2)
+        urls_d2 = [r.url for r in res_d2]
+        assert f"http://127.0.0.1:{port}/file1.zip" in urls_d2
+        assert f"http://127.0.0.1:{port}/file2.rar" in urls_d2
+        assert f"http://127.0.0.1:{port}/file3.7z" not in urls_d2
+
+        # Depth 3: should discover all 3 files
+        res_d3 = await grabber.crawl(base_url, depth=3)
+        urls_d3 = [r.url for r in res_d3]
+        assert f"http://127.0.0.1:{port}/file1.zip" in urls_d3
+        assert f"http://127.0.0.1:{port}/file2.rar" in urls_d3
+        assert f"http://127.0.0.1:{port}/file3.7z" in urls_d3
+    finally:
+        await runner.cleanup()
+
+

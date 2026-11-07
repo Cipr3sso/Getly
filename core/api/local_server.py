@@ -50,6 +50,7 @@ class LocalHttpServer(CNLServer):
         self._app.router.add_post("/add_batch", self._handle_add_batch)
         self._app.router.add_get("/jdcheck.js", self._handle_jdcheck)
         self._app.router.add_post("/flashgot", self._handle_flashgot)
+        self._app.router.add_post("/site/grab", self._handle_site_grab)
 
     async def _handle_health(self, request: web.Request) -> web.Response:
         """
@@ -361,3 +362,41 @@ class LocalHttpServer(CNLServer):
             "count": len(tasks),
             "tasks": tasks,
         })
+
+    async def _handle_site_grab(self, request: web.Request) -> web.Response:
+        """
+        Crawls a website URL with optional depth and returns discovered downloadable files.
+        Body: { "url": "https://example.com/page", "depth": 1, "max_pages": 40 }
+        """
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON body"}, status=400)
+
+        url = data.get("url")
+        if not url or not isinstance(url, str):
+            return web.json_response({"error": "Missing or invalid 'url'"}, status=400)
+
+        depth = int(data.get("depth", 1))
+        max_pages = int(data.get("max_pages", 40))
+
+        from core.engine.site_grabber import SiteGrabber
+        grabber = SiteGrabber()
+        resources = await grabber.crawl(url, depth=depth, max_pages=max_pages)
+
+        return web.json_response({
+            "status": "ok",
+            "url": url,
+            "depth": depth,
+            "total": len(resources),
+            "items": [
+                {
+                    "url": r.url,
+                    "filename": r.filename,
+                    "category": r.category,
+                    "source_tag": r.source_tag,
+                }
+                for r in resources
+            ],
+        })
+

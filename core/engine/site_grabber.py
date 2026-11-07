@@ -249,3 +249,151 @@ class SiteGrabber:
 
         logger.info("SiteGrabber: Found %d downloadable resources from %s", len(results), clean_url)
         return results
+
+    async def crawl(
+        self,
+        start_url: str,
+        depth: int = 1,
+        max_pages: int = 40,
+        user_agent: Optional[str] = None,
+        cookies: Optional[str] = None,
+        referer: Optional[str] = None,
+        timeout_sec: float = 12.0,
+    ) -> List[GrabbedResource]:
+        """
+        Recursively crawls a website up to the specified depth and extracts all
+        downloadable files and media discovered across pages.
+        """
+        clean_start = start_url.strip()
+        if not (clean_start.startswith("http://") or clean_start.startswith("https://")):
+            clean_start = "https://" + clean_start
+
+        if depth <= 1:
+            return await self.analyze_page(
+                clean_start,
+                user_agent=user_agent,
+                cookies=cookies,
+                referer=referer,
+                timeout_sec=timeout_sec,
+            )
+
+        headers = {
+            "User-Agent": user_agent
+            or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+        }
+        if referer:
+            headers["Referer"] = referer
+        if cookies:
+            headers["Cookie"] = cookies
+
+        start_parsed = urllib.parse.urlparse(clean_start)
+        base_host = start_parsed.netloc.lower()
+
+        visited_pages: Set[str] = set()
+        to_visit: List[tuple[str, int]] = [(clean_start, 1)]
+        seen_to_visit: Set[str] = {clean_start}
+
+        seen_resource_urls: Set[str] = set()
+        all_resources: List[GrabbedResource] = []
+        counter = 1
+
+        timeout = aiohttp.ClientTimeout(total=timeout_sec)
+        connector = aiohttp.TCPConnector(ssl=False)
+
+        async with aiohttp.ClientSession(timeout=timeout, headers=headers, connector=connector) as session:
+            while to_visit and len(visited_pages) < max_pages:
+                curr_url, curr_depth = to_visit.pop(0)
+                if curr_url in visited_pages:
+                    continue
+                visited_pages.add(curr_url)
+
+                try:
+                    async with session.get(curr_url, allow_redirects=True) as resp:
+                        if resp.status >= 400:
+                            continue
+                        content_type = resp.headers.get("Content-Type", "").lower()
+                        if "text/html" not in content_type and "application/xhtml" not in content_type:
+                            continue
+                        html_content = await resp.text(errors="ignore")
+                        final_url = str(resp.url)
+                except Exception as exc:
+                    logger.debug("SiteGrabber crawl failed to load %s: %s", curr_url, exc)
+                    continue
+
+                # 1. Parse HTML
+                parser = _HTMLResourceExtractor()
+                try:
+                    parser.feed(html_content)
+                except Exception:
+                    pass
+
+                # 2. Regex search for direct media URLs
+                regex_urls = re.findall(r'https?://[^\s"\'<>]+', html_content)
+                for u in regex_urls:
+                    parser.raw_items.append((u, "regex"))
+
+                # 3. Categorize resources and discover links for deeper crawl
+                for raw_link, tag in parser.raw_items:
+                    try:
+                        abs_url = urllib.parse.urljoin(final_url, raw_link)
+                    except Exception:
+                        continue
+
+                    # Clean fragments
+                    p = urllib.parse.urlparse(abs_url)
+                    clean_abs = urllib.parse.urlunparse((p.scheme, p.netloc, p.path, p.params, p.query, ""))
+                    lower_abs = clean_abs.lower()
+
+                    if not (lower_abs.startswith("http://") or lower_abs.startswith("https://")):
+                        continue
+
+                    path_ext = posixpath.splitext(p.path)[1].lower()
+
+                    # Is this a candidate downloadable file?
+                    if self._is_valid_candidate(clean_abs) and path_ext not in IGNORED_EXTENSIONS:
+                        if clean_abs not in seen_resource_urls:
+                            seen_resource_urls.add(clean_abs)
+                            cat = detect_category(clean_abs)
+                            if cat == CATEGORY_OTHER:
+                                if tag in ("image", "img"):
+                                    cat = "Immagini_ISO"
+                                elif tag in ("video",):
+                                    cat = "Video"
+                                elif tag in ("audio",):
+                                    cat = "Audio"
+
+                            fn = self._synthesize_filename(clean_abs, cat, counter)
+                            counter += 1
+                            all_resources.append(
+                                GrabbedResource(
+                                    url=clean_abs,
+                                    filename=fn,
+                                    category=cat,
+                                    source_tag=tag,
+                                )
+                            )
+
+                    # If we haven't reached depth limit and this is a link (<a href>), enqueue subpage
+                    if tag == "link" and curr_depth < depth and len(seen_to_visit) < max_pages * 2:
+                        link_host = p.netloc.lower()
+                        is_allowed_crawl_host = (
+                            link_host == base_host
+                            or link_host.endswith("." + base_host)
+                            or "paste" in link_host
+                            or "mirror" in link_host
+                        )
+                        if is_allowed_crawl_host:
+                            if path_ext in ("", ".html", ".htm", ".php", ".asp", ".aspx", ".jsp"):
+                                if clean_abs not in visited_pages and clean_abs not in seen_to_visit:
+                                    seen_to_visit.add(clean_abs)
+                                    to_visit.append((clean_abs, curr_depth + 1))
+
+        logger.info(
+            "SiteGrabber crawl completed: %d resources discovered across %d pages (Depth: %d)",
+            len(all_resources),
+            len(visited_pages),
+            depth,
+        )
+        return all_resources

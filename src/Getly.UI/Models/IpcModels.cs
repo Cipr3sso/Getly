@@ -255,3 +255,28 @@ public sealed record SystemHealthReportDto
     [JsonPropertyName("missing_files_detected")]
     public int MissingFilesDetected { get; init; }
 }
+
+public sealed record GrabbedResourceDto
+{
+    [JsonPropertyName("url")]
+    public string Url { get; init; } = string.Empty;
+
+    [JsonPropertyName("filename")]
+    public string Filename { get; init; } = string.Empty;
+
+    [JsonPropertyName("category")]
+    public string Category { get; init; } = string.Empty;
+
+    [JsonPropertyName("source_tag")]
+    public string SourceTag { get; init; } = string.Empty;
+}
+
+public sealed record SiteGrabResultDto
+{
+    [JsonPropertyName("items")]
+    public List<GrabbedResourceDto> Items { get; init; } = new();
+
+    [JsonPropertyName("total")]
+    public int Total { get; init; }
+}
+

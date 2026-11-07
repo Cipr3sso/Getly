@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 import json
 from pathlib import Path
 import time
+from unittest.mock import patch
 import uuid
 import pytest
 
@@ -301,3 +302,44 @@ async def test_engine_service_test_client_cli(tmp_path: Path):
         # Test running with custom command
         code2 = await run_test_client(pipe_name=pipe_name, custom_cmd="tasks.list")
         assert code2 == 0
+
+
+@pytest.mark.asyncio
+async def test_ipc_pipe_site_grab(tmp_path: Path):
+    async with ipc_server_context(tmp_path) as env:
+        server = env["server"]
+        pipe_name = env["pipe_name"]
+
+        reader, writer = await connect_pipe_client(pipe_name, timeout=5.0)
+
+        with patch("core.engine.site_grabber.SiteGrabber.crawl") as mock_crawl:
+            from core.engine.site_grabber import GrabbedResource
+            mock_crawl.return_value = [
+                GrabbedResource(
+                    url="https://example.com/files/setup.rar",
+                    filename="setup.rar",
+                    category="Compressi",
+                    source_tag="link",
+                )
+            ]
+
+            req = {
+                "id": 99,
+                "method": "site.grab",
+                "params": {"url": "https://example.com/downloads", "depth": 2},
+            }
+            writer.write((json.dumps(req) + "\n").encode("utf-8"))
+            await writer.drain()
+
+            resp_line = await asyncio.wait_for(reader.readline(), timeout=3.0)
+            resp = json.loads(resp_line.decode("utf-8").strip())
+
+            assert resp["id"] == 99
+            assert resp["error"] is None
+            assert resp["result"]["total"] == 1
+            assert resp["result"]["items"][0]["filename"] == "setup.rar"
+            assert resp["result"]["items"][0]["category"] == "Compressi"
+
+        writer.close()
+        await writer.wait_closed()
+

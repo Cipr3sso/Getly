@@ -31,6 +31,24 @@
                     </Border>
                 </Grid>
             </DataTemplate>
+
+            <DataTemplate x:Key="GrabbedResourceItemTemplate" x:DataType="vm:GrabbedResourceItem">
+                <Grid Margin="0,2" Padding="4,2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <CheckBox Grid.Column="0" IsChecked="{x:Bind IsSelected, Mode=TwoWay}" MinWidth="26" Margin="0,0,8,0" VerticalAlignment="Center" />
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
+                        <TextBlock Text="{x:Bind Filename}" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorPrimaryBrush}" TextTrimming="CharacterEllipsis" MaxLines="1" />
+                        <TextBlock Text="{x:Bind Url}" FontSize="10" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" MaxLines="1" />
+                    </StackPanel>
+                    <Border Grid.Column="2" Background="{x:Bind CategoryBackground}" CornerRadius="4" Padding="6,2" Margin="8,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="{x:Bind Category}" FontSize="10" FontWeight="Medium" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                    </Border>
+                </Grid>
+            </DataTemplate>
         </Grid.Resources>
         <Grid.RowDefinitions>
             <!-- App Title Bar -->
@@ -100,6 +118,11 @@
                         <FontIcon Glyph="&#xE774;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Content="Site Grabber" Tag="SiteGrabber">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE753;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Content="Eliminati" Tag="DELETED">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE74D;" />
@@ -143,6 +166,7 @@
                             Background="Transparent">
                             <AppBarButton Icon="Add" Label="Nuovo Download" Click="OnAddDownloadClick" />
                             <AppBarButton Icon="AllApps" Label="📦 Download Batch" Click="OnBatchDownloadClick" ToolTipService.ToolTip="Aggiungi una lista di download da testo o link" />
+                            <AppBarButton Icon="Globe" Label="🌐 Site Grabber" Click="OnSiteGrabberClick" ToolTipService.ToolTip="Esplora e cattura file da pagine web con scansione ricorsiva di profondità" />
                             <AppBarSeparator />
                             <AppBarButton Icon="Play" Label="Riprendi" Command="{x:Bind ViewModel.ResumeTaskCommand}" CommandParameter="{x:Bind ViewModel.SelectedTask, Mode=OneWay}" />
                             <AppBarButton Icon="Pause" Label="Pausa" Command="{x:Bind ViewModel.PauseTaskCommand}" CommandParameter="{x:Bind ViewModel.SelectedTask, Mode=OneWay}" />

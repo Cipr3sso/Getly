@@ -372,6 +372,12 @@ public sealed class IpcClient : IAsyncDisposable, IDisposable
         await InvokeAsync("system.refresh_network", new { }, cancellationToken: cancellationToken);
     }
 
+    public async Task<SiteGrabResultDto> GrabSiteAsync(string url, int depth = 1, int maxPages = 40, int timeoutMs = 60000, CancellationToken cancellationToken = default)
+    {
+        var result = await InvokeAsync("site.grab", new { url, depth, max_pages = maxPages }, timeoutMs: timeoutMs, cancellationToken: cancellationToken);
+        return JsonSerializer.Deserialize<SiteGrabResultDto>(result.GetRawText()) ?? new();
+    }
+
     #endregion
 
     private bool _disposed;

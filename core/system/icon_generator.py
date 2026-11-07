@@ -185,7 +185,7 @@ def ensure_app_icons(project_root: Optional[Path] = None, force: bool = False) -
         root = project_root or Path(__file__).resolve().parent.parent
 
     assets_dir = root / "assets"
-    ext_icons_dir = root / "extension" / "icons"
+    ext_icons_dir = root / "extensions" / "chrome" / "icons"
 
     try:
         assets_dir.mkdir(parents=True, exist_ok=True)
@@ -194,7 +194,7 @@ def ensure_app_icons(project_root: Optional[Path] = None, force: bool = False) -
         # Read-only fallback
         root = get_app_data_dir()
         assets_dir = root / "assets"
-        ext_icons_dir = root / "extension" / "icons"
+        ext_icons_dir = root / "extensions" / "chrome" / "icons"
         assets_dir.mkdir(parents=True, exist_ok=True)
         ext_icons_dir.mkdir(parents=True, exist_ok=True)
 

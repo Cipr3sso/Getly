@@ -470,7 +470,7 @@ public partial class MainViewModel : ObservableObject
         await AddDownloadWithParamsAsync(url);
     }
 
-    public async Task AddDownloadWithParamsAsync(string url, string? category = null, bool startPaused = false, string? filename = null)
+    public async Task AddDownloadWithParamsAsync(string url, string? category = null, bool startPaused = false, string? filename = null, string? destDir = null)
     {
         if (string.IsNullOrWhiteSpace(url)) return;
 
@@ -497,7 +497,8 @@ public partial class MainViewModel : ObservableObject
         try
         {
             StatusMessage = "Aggiunta download...";
-            var task = await _ipcClient.AddTaskAsync(cleanUrl, category: category, destDir: DefaultDownloadDir, filename: filename, startPaused: startPaused);
+            string targetDir = string.IsNullOrWhiteSpace(destDir) ? DefaultDownloadDir : destDir;
+            var task = await _ipcClient.AddTaskAsync(cleanUrl, category: category, destDir: targetDir, filename: filename, startPaused: startPaused);
             RunOnUI(() =>
             {
                 TaskItemViewModel vm;
