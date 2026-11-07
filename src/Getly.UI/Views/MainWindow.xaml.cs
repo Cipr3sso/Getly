@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
@@ -8,6 +9,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Getly.UI.Services;
 using Getly.UI.ViewModels;
+using Microsoft.Win32;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -597,6 +599,351 @@ public sealed partial class MainWindow : Window
 
         await ViewModel.SaveSettingsAsync();
     }
+
+    #region Browser Extension Installation Helpers
+
+    private sealed record BrowserInfo(string Name, string ExePath, string ExtensionsUrl);
+
+    private string GetExtensionDirectory()
+    {
+        string[] candidates =
+        [
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "extensions", "chrome"),
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "extension"),
+        ];
+
+        foreach (var c in candidates)
+        {
+            if (Directory.Exists(c) && File.Exists(Path.Combine(c, "manifest.json")))
+                return c;
+        }
+
+        var dir = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
+        while (dir != null)
+        {
+            string c1 = Path.Combine(dir.FullName, "extensions", "chrome");
+            if (Directory.Exists(c1) && File.Exists(Path.Combine(c1, "manifest.json")))
+                return c1;
+
+            string c2 = Path.Combine(dir.FullName, "extension");
+            if (Directory.Exists(c2) && File.Exists(Path.Combine(c2, "manifest.json")))
+                return c2;
+
+            dir = dir.Parent;
+        }
+
+        return candidates[0];
+    }
+
+    private BrowserInfo GetDefaultBrowserInfo()
+    {
+        try
+        {
+            using var userChoiceKey = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice");
+            string progId = userChoiceKey?.GetValue("ProgId") as string ?? "";
+
+            if (!string.IsNullOrWhiteSpace(progId))
+            {
+                using var cmdKey = Registry.ClassesRoot.OpenSubKey($@"{progId}\shell\open\command");
+                string rawCmd = cmdKey?.GetValue("") as string ?? "";
+                string exePath = "";
+
+                if (!string.IsNullOrWhiteSpace(rawCmd))
+                {
+                    if (rawCmd.StartsWith("\""))
+                    {
+                        int nextQuote = rawCmd.IndexOf('\"', 1);
+                        if (nextQuote > 1) exePath = rawCmd.Substring(1, nextQuote - 1);
+                    }
+                    else
+                    {
+                        exePath = rawCmd.Split(' ')[0];
+                    }
+                }
+
+                if (File.Exists(exePath))
+                {
+                    string lower = exePath.ToLowerInvariant();
+                    string progLower = progId.ToLowerInvariant();
+
+                    if (lower.Contains("brave") || progLower.Contains("brave"))
+                    {
+                        return new BrowserInfo("Brave Browser", exePath, "brave://extensions");
+                    }
+                    if (lower.Contains("chrome") || progLower.Contains("chrome"))
+                    {
+                        return new BrowserInfo("Google Chrome", exePath, "chrome://extensions");
+                    }
+                    if (lower.Contains("msedge") || lower.Contains("edge") || progLower.Contains("edge"))
+                    {
+                        return new BrowserInfo("Microsoft Edge", exePath, "edge://extensions");
+                    }
+                    if (lower.Contains("opera") || progLower.Contains("opera"))
+                    {
+                        return new BrowserInfo("Opera", exePath, "opera://extensions");
+                    }
+                    if (lower.Contains("vivaldi") || progLower.Contains("vivaldi"))
+                    {
+                        return new BrowserInfo("Vivaldi", exePath, "vivaldi://extensions");
+                    }
+                    if (lower.Contains("firefox") || progLower.Contains("firefox"))
+                    {
+                        return new BrowserInfo("Mozilla Firefox", exePath, "about:debugging#/runtime/this-firefox");
+                    }
+
+                    return new BrowserInfo(Path.GetFileNameWithoutExtension(exePath), exePath, "chrome://extensions");
+                }
+            }
+        }
+        catch { }
+
+        // Fallback checks
+        string[] fallbacks =
+        [
+            @"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+            @"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            @"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        ];
+
+        foreach (var fb in fallbacks)
+        {
+            if (File.Exists(fb))
+            {
+                string fn = Path.GetFileNameWithoutExtension(fb).ToLowerInvariant();
+                string name = fn.Contains("brave") ? "Brave Browser" : (fn.Contains("chrome") ? "Google Chrome" : "Microsoft Edge");
+                string url = fn.Contains("brave") ? "brave://extensions" : (fn.Contains("chrome") ? "chrome://extensions" : "edge://extensions");
+                return new BrowserInfo(name, fb, url);
+            }
+        }
+
+        return new BrowserInfo("Browser Web", "", "chrome://extensions");
+    }
+
+    private List<BrowserInfo> GetOtherInstalledBrowsers(string currentBrowserExe)
+    {
+        var list = new List<BrowserInfo>();
+        var candidates = new (string Name, string Path, string Url)[]
+        {
+            ("Brave Browser", @"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe", "brave://extensions"),
+            ("Google Chrome", @"C:\Program Files\Google\Chrome\Application\chrome.exe", "chrome://extensions"),
+            ("Google Chrome", @"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe", "chrome://extensions"),
+            ("Microsoft Edge", @"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe", "edge://extensions"),
+            ("Microsoft Edge", @"C:\Program Files\Microsoft\Edge\Application\msedge.exe", "edge://extensions"),
+            ("Opera", Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\Opera\launcher.exe"), "opera://extensions"),
+            ("Mozilla Firefox", @"C:\Program Files\Mozilla Firefox\firefox.exe", "about:debugging#/runtime/this-firefox"),
+        };
+
+        var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, path, url) in candidates)
+        {
+            if (File.Exists(path) && !string.Equals(path, currentBrowserExe, StringComparison.OrdinalIgnoreCase) && seenNames.Add(name))
+            {
+                list.Add(new BrowserInfo(name, path, url));
+            }
+        }
+        return list;
+    }
+
+    private async void OnInstallExtensionClick(object sender, RoutedEventArgs e)
+    {
+        string extDir = GetExtensionDirectory();
+        var defaultBrowser = GetDefaultBrowserInfo();
+        var otherBrowsers = GetOtherInstalledBrowsers(defaultBrowser.ExePath);
+
+        // 1. Copy folder path to clipboard
+        try
+        {
+            var dataPackage = new DataPackage();
+            dataPackage.SetText(extDir);
+            Clipboard.SetContent(dataPackage);
+        }
+        catch { }
+
+        // Helper to launch browser to extensions page
+        void OpenBrowserExtensions(BrowserInfo browser)
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(browser.ExePath) && File.Exists(browser.ExePath))
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = browser.ExePath,
+                        Arguments = browser.ExtensionsUrl,
+                        UseShellExecute = false
+                    });
+                }
+                else
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "cmd.exe",
+                        Arguments = $"/c start {browser.ExtensionsUrl}",
+                        CreateNoWindow = true,
+                        UseShellExecute = false
+                    });
+                }
+            }
+            catch { }
+        }
+
+        // 2. Open default browser to extensions page
+        OpenBrowserExtensions(defaultBrowser);
+
+        // 3. Open Explorer directly inside the extension folder
+        try
+        {
+            if (Directory.Exists(extDir))
+            {
+                Process.Start("explorer.exe", $"\"{extDir}\"");
+            }
+        }
+        catch { }
+
+        if (_isDialogOpen) return;
+        _isDialogOpen = true;
+
+        try
+        {
+            var contentStack = new StackPanel { Spacing = 14, Width = 520 };
+
+            var badge = new Border
+            {
+                Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(30, 16, 185, 129)),
+                BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(120, 16, 185, 129)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(12, 10, 12, 10)
+            };
+            var badgeStack = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+            badgeStack.Children.Add(new FontIcon { Glyph = "\uE73E", FontSize = 16, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 16, 185, 129)) });
+            badgeStack.Children.Add(new TextBlock
+            {
+                Text = $"Scheda '{defaultBrowser.ExtensionsUrl}' aperta in {defaultBrowser.Name} e cartella copiata!",
+                FontSize = 12,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Foreground = GetThemePrimaryBrush(),
+                VerticalAlignment = VerticalAlignment.Center,
+                TextWrapping = TextWrapping.Wrap
+            });
+            badge.Child = badgeStack;
+            contentStack.Children.Add(badge);
+
+            var pathStack = new StackPanel { Spacing = 4 };
+            pathStack.Children.Add(new TextBlock { Text = "Percorso cartella estensione (già copiato negli appunti):", FontSize = 11, Foreground = GetThemeSecondaryBrush() });
+
+            var copyPathBox = new TextBox { Text = extDir, IsReadOnly = true, FontSize = 11, Width = 430 };
+            var copyBtn = new Button { Content = "Copia", VerticalAlignment = VerticalAlignment.Center };
+            copyBtn.Click += (s, a) =>
+            {
+                var dp = new DataPackage();
+                dp.SetText(extDir);
+                Clipboard.SetContent(dp);
+                ViewModel.StatusMessage = "Percorso cartella estensione copiato negli appunti.";
+            };
+            var pathRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { copyPathBox, copyBtn } };
+            pathStack.Children.Add(pathRow);
+            contentStack.Children.Add(pathStack);
+
+            var stepsBorder = new Border
+            {
+                Background = GetThemeCardBackgroundBrush(),
+                BorderBrush = GetThemeBorderBrush(),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(14, 12, 14, 12)
+            };
+
+            var stepsStack = new StackPanel { Spacing = 10 };
+            stepsStack.Children.Add(new TextBlock { Text = "Come completare l'installazione in 5 secondi:", FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = GetThemePrimaryBrush() });
+
+            var step1 = new TextBlock
+            {
+                Text = $"1️⃣  Nella pagina appena aperta in {defaultBrowser.Name}, attiva la \"Modalità sviluppatore\" (levetta in alto a destra).",
+                FontSize = 11,
+                Foreground = GetThemePrimaryBrush(),
+                TextWrapping = TextWrapping.Wrap
+            };
+            var step2 = new TextBlock
+            {
+                Text = "2️⃣  Trascina la cartella aperta di Esplora File direttamente dentro la finestra del browser (oppure clicca su \"Carica estensione non pacchettizzata\" e selezionala).",
+                FontSize = 11,
+                Foreground = GetThemePrimaryBrush(),
+                TextWrapping = TextWrapping.Wrap
+            };
+            var step3 = new TextBlock
+            {
+                Text = "3️⃣  Fatto! L'icona Getly apparirà nella barra delle estensioni del browser e catturerà automaticamente download e flussi video/audio.",
+                FontSize = 11,
+                Foreground = GetThemePrimaryBrush(),
+                TextWrapping = TextWrapping.Wrap
+            };
+
+            stepsStack.Children.Add(step1);
+            stepsStack.Children.Add(step2);
+            stepsStack.Children.Add(step3);
+            stepsBorder.Child = stepsStack;
+            contentStack.Children.Add(stepsBorder);
+
+            if (otherBrowsers.Count > 0)
+            {
+                var otherStack = new StackPanel { Spacing = 6 };
+                otherStack.Children.Add(new TextBlock { Text = "Vuoi installarla anche su un altro browser rilevato?", FontSize = 11, Foreground = GetThemeSecondaryBrush() });
+                var browserBtnsRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+                foreach (var b in otherBrowsers)
+                {
+                    var bBtn = new Button { Content = $"Apri su {b.Name}", FontSize = 11, Padding = new Thickness(10, 4, 10, 4) };
+                    bBtn.Click += (s, a) => OpenBrowserExtensions(b);
+                    browserBtnsRow.Children.Add(bBtn);
+                }
+                otherStack.Children.Add(browserBtnsRow);
+                contentStack.Children.Add(otherStack);
+            }
+
+            var dialog = new ContentDialog
+            {
+                Title = $"Installazione Estensione ({defaultBrowser.Name})",
+                PrimaryButtonText = "Riapri Pagina Estensioni",
+                SecondaryButtonText = "Riapri Cartella",
+                CloseButtonText = "Ho Fatto!",
+                DefaultButton = ContentDialogButton.Close,
+                Content = contentStack
+            };
+            PrepareDialog(dialog);
+
+            var res = await dialog.ShowAsync();
+            if (res == ContentDialogResult.Primary)
+            {
+                OpenBrowserExtensions(defaultBrowser);
+            }
+            else if (res == ContentDialogResult.Secondary)
+            {
+                if (Directory.Exists(extDir))
+                {
+                    Process.Start("explorer.exe", $"\"{extDir}\"");
+                }
+            }
+        }
+        finally
+        {
+            _isDialogOpen = false;
+        }
+    }
+
+    private void OnOpenExtensionFolderClick(object sender, RoutedEventArgs e)
+    {
+        string extDir = GetExtensionDirectory();
+        if (Directory.Exists(extDir))
+        {
+            Process.Start("explorer.exe", $"\"{extDir}\"");
+        }
+        else
+        {
+            ViewModel.StatusMessage = $"Cartella estensione non trovata in: {extDir}";
+        }
+    }
+
+    #endregion
 
     #endregion
 

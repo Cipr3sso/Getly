@@ -141,11 +141,16 @@ def step_3_build_frontend(ico_path: Path):
         shutil.copy2(PROJECT_ROOT / "assets" / "app_icon.png", assets_dest / "app_icon.png")
 
     ext_dest = GETLY_DIST_DIR / "extension"
+    ext_dest2 = GETLY_DIST_DIR / "extensions" / "chrome"
     ext_src = PROJECT_ROOT / "extensions" / "chrome"
     if ext_src.exists():
         if ext_dest.exists():
             shutil.rmtree(ext_dest, ignore_errors=True)
         shutil.copytree(ext_src, ext_dest)
+        if ext_dest2.exists():
+            shutil.rmtree(ext_dest2, ignore_errors=True)
+        ext_dest2.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(ext_src, ext_dest2)
 
     print(f"\n[+] Frontend WinUI 3 compilato con successo: {target_exe}")
     return target_exe

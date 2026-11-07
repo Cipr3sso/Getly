@@ -584,6 +584,39 @@
                             </StackPanel>
                         </Border>
 
+                        <!-- Browser Extension Card -->
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="18,14,18,14">
+                            <StackPanel Spacing="14">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE71B;" FontSize="16" Foreground="#3B82F6" VerticalAlignment="Center" />
+                                    <TextBlock Text="Estensione Browser &amp; Sniffer Flussi" FontSize="14" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center" />
+                                </StackPanel>
+
+                                <TextBlock Text="Installa l'estensione Getly nel tuo browser per intercettare automaticamente i download dal web, catturare video protetti HLS/m3u8 e musica/audio in riproduzione con un click." FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+
+                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <Button
+                                        Style="{StaticResource AccentButtonStyle}"
+                                        Click="OnInstallExtensionClick"
+                                        Padding="16,8,16,8">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon Glyph="&#xE774;" FontSize="14" />
+                                            <TextBlock Text="Installa nel Browser Predefinito" />
+                                        </StackPanel>
+                                    </Button>
+
+                                    <Button
+                                        Click="OnOpenExtensionFolderClick"
+                                        Padding="14,8,14,8">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <FontIcon Glyph="&#xED25;" FontSize="14" />
+                                            <TextBlock Text="Apri Cartella Estensione" />
+                                        </StackPanel>
+                                    </Button>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
                         <!-- System Card -->
                         <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Padding="18,14,18,14">
                             <StackPanel Spacing="14">
