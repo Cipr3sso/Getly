@@ -178,3 +178,29 @@ async def test_site_grabber_crawl_depth():
         await runner.cleanup()
 
 
+def test_site_grabber_fragment_and_hoster_extraction():
+    # 1. URL with fragment containing multi-part archive filename
+    url1 = "https://fuckingfast.co/dqy8n6yocv2t#CoD_MW4_--_fitgirl-repacks.site_--_.part01.rar"
+    fn1, ext1, cat1 = SiteGrabber._extract_file_info(url1)
+    assert fn1 == "CoD_MW4_--_fitgirl-repacks.site_--_.part01.rar"
+    assert ext1 == ".rar"
+    assert cat1 == CATEGORY_COMPRESSED
+
+    # 2. Plain navigation link without extension should return None
+    url2 = "https://bit.ly/fgpaste"
+    fn2, ext2, cat2 = SiteGrabber._extract_file_info(url2)
+    assert fn2 is None
+
+    # 3. Paste link without file extension should return None
+    url3 = "https://paste.fitgirl-repacks.site/?537b1bf966486939"
+    fn3, ext3, cat3 = SiteGrabber._extract_file_info(url3)
+    assert fn3 is None
+
+    # 4. Known hoster with resource path
+    url4 = "https://datanodes.to/dhv6pa37tsmz/archive.rar"
+    fn4, ext4, cat4 = SiteGrabber._extract_file_info(url4)
+    assert fn4 == "archive.rar"
+    assert cat4 == CATEGORY_COMPRESSED
+
+
+

@@ -251,6 +251,13 @@ class ResourceProbe:
                 logger.debug("curl_cffi TLS impersonation probe error: %s", exc)
             return None
 
+        # Resolve known hosters (e.g. fuckingfast.co) to direct CDN download streams
+        if "fuckingfast.co" in urllib.parse.urlparse(url).netloc.lower():
+            resolved_ff = await cls._resolve_fuckingfast_stream(session, url)
+            if resolved_ff:
+                resolved_url = resolved_ff
+                url = resolved_ff
+
         # 1. Try HEAD request first with realistic browser headers, dynamic/custom Referer and Cookies
         head_headers = get_browser_headers(
             url,
@@ -502,21 +509,70 @@ class ResourceProbe:
 
         return None
 
+    @classmethod
+    async def _resolve_fuckingfast_stream(cls, session: aiohttp.ClientSession, url: str) -> Optional[str]:
+        """Resolves fuckingfast.co intermediate link to direct CDN download stream."""
+        try:
+            parsed = urllib.parse.urlparse(url)
+            parts = [p for p in parsed.path.strip("/").split("/") if p]
+            if not parts:
+                return None
+            file_id = parts[-1]
+            if file_id == "go" and len(parts) > 1:
+                file_id = parts[-2]
+            if not file_id:
+                return None
+
+            post_url = f"https://fuckingfast.co/f/{file_id}/go"
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+                "HX-Request": "true",
+                "HX-Trigger": "link-button",
+                "HX-Target": "link-button",
+                "HX-Current-URL": url,
+                "Referer": f"https://fuckingfast.co/{file_id}",
+            }
+            async with session.post(post_url, headers=headers, allow_redirects=False) as resp:
+                hx_redirect = resp.headers.get("HX-Redirect") or resp.headers.get("Hx-Redirect")
+                if hx_redirect:
+                    logger.info("Successfully resolved fuckingfast.co stream: %s -> %s", url, hx_redirect)
+                    return hx_redirect
+        except Exception as exc:
+            logger.debug("Failed to resolve fuckingfast.co direct stream: %s", exc)
+        return None
+
     @staticmethod
     def _extract_filename_from_url(url: str) -> str:
-        """Derives a fallback filename from the URL path, stripping query parameters and hash."""
-        parsed = urllib.parse.urlparse(url)
-        path = parsed.path
-        name = os.path.basename(path)
-        if not name or name == "/":
-            return "downloaded_file"
-        if "?" in name:
-            name = name.split("?")[0]
-        if "#" in name:
-            name = name.split("#")[0]
-        if "&" in name:
-            name = name.split("&")[0]
-        name = urllib.parse.unquote(name)
-        if not name or name == "/":
-            return "downloaded_file"
-        return name
+        """Derives a filename from the URL, inspecting fragment, query params, and path."""
+        try:
+            parsed = urllib.parse.urlparse(url)
+            # 1. Fragment (used by file indexers / pastes e.g. fuckingfast.co/<id>#<filename>)
+            if parsed.fragment:
+                frag = parsed.fragment.split("&")[0]
+                frag = urllib.parse.unquote(frag)
+                if "." in frag and len(frag) > 3:
+                    cand = os.path.basename(frag.replace("\\", "/"))
+                    if cand and "." in cand:
+                        return cand
+
+            # 2. Query parameter
+            if parsed.query:
+                qs = urllib.parse.parse_qs(parsed.query)
+                for key in ("filename", "file", "name", "fn", "download"):
+                    if key in qs and qs[key]:
+                        q_cand = urllib.parse.unquote(qs[key][0])
+                        if "." in q_cand:
+                            return os.path.basename(q_cand.replace("\\", "/"))
+
+            # 3. Path basename
+            path = parsed.path
+            name = os.path.basename(path)
+            if name and name != "/":
+                clean_name = re.split(r"[?#]", name)[0]
+                clean_name = urllib.parse.unquote(clean_name)
+                if clean_name and clean_name != "/":
+                    return clean_name
+        except Exception:
+            pass
+
+        return "downloaded_file"
